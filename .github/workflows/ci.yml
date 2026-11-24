@@ -176,7 +176,7 @@ jobs:
       - name: Upload Trixie bundles
         uses: actions/upload-artifact@v4.6.2
         with:
-          name: md-viewer-trixie
+          name: glimpse-trixie
           path: |
             src-tauri/target/release/bundle/deb/*.deb
             src-tauri/target/release/bundle/appimage/*.AppImage

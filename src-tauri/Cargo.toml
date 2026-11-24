@@ -1,13 +1,13 @@
 [package]
-name = "md-viewer"
+name = "glimpse"
 version = "0.1.0"
 description = "Offline markdown viewer"
-authors = ["md-viewer"]
+authors = ["Glimpse"]
 edition = "2021"
 rust-version = "1.77"
 
 [lib]
-name = "md_viewer"
+name = "glimpse"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

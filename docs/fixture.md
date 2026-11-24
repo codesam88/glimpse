@@ -2,7 +2,7 @@
 title: Fixture
 ---
 
-# md-viewer fixture
+# Glimpse fixture
 
 This document exercises the offline renderer.
 
@@ -113,7 +113,7 @@ gantt
 
 ```mermaid
 mindmap
-  root((md-viewer))
+  root((Glimpse))
     diagrams
       mermaid
       plantuml
