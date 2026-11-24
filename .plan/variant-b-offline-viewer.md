@@ -91,19 +91,22 @@ edit-back, tabs, global search.
 
 ### Step 2 — Packaging + diagram parity hardening
 
-Scope: Ubuntu 24.04 container/GH `ubuntu-24.04` builds, `.deb`
-(depends `libwebkit2gtk-4.1-0`, `libgtk-3-0`) + AppImage, `ldd`/lintian
-clean, PlantUML subset corpus + mermaid sample matrix, large-file +
-error-path tests, CSP/mitm offline audit, README unsupported-languages
-doc (`ditaa` listed as deferred), `npm audit` + `cargo audit` in CI.
-Done: test matrix below green on clean 24.04 VM (X11 + Wayland);
-no egress in tcpdump run; installs verified. Leaves out: PNG/PDF export,
+Scope: Debian Trixie container builds, `.deb` (depends
+`libwebkit2gtk-4.1-0`, `libgtk-3-0`; verify exact Trixie revision names)
++ AppImage from same container, `ldd`/lintian clean, PlantUML subset
+corpus + mermaid sample matrix, large-file + error-path tests, CSP/mitm
+offline audit, README unsupported-languages doc (`ditaa` listed as
+deferred), `npm audit` + `cargo audit` in CI.
+Done: test matrix below green on clean Trixie container/VM (X11 + Wayland);
+no egress in tcpdump run; installs verified. Ubuntu 24.04 `.deb` + generic
+rebuild explicitly deferred to post-V1. Leaves out: PNG/PDF export,
 print CSS, relative-link navigation (Phase 3).
 
 Test matrix (Step 2 gate):
 
-- OS: clean Ubuntu 24.04 (WebKit ~2.48+), X11 + Wayland. 22.04 explicitly
-  unsupported (glibc floor). Debian Trixie + generic amd64 covered below.
+- OS: clean Debian Trixie container/VM (primary V1 gate), X11 + Wayland.
+  Ubuntu 24.04 explicitly deferred to post-V1 (separate container build;
+  Trixie glibc floor will not run on 24.04).
 - Mermaid: flow, sequence, class, ER, state, gantt, mindmap (full-only),
   100-node stress.
 - PlantUML: sequence, class, activity (new syntax), component, state,
@@ -117,9 +120,11 @@ Test matrix (Step 2 gate):
 ## 4. Decisions (locked 2026-11-24)
 
 1. Frontend: **Svelte + Vite SPA** (locked). No SSR/router.
-2. Build floor: **Ubuntu 24.04** (locked). Drops Ubuntu 22.04 support:
-   binaries require 24.04 glibc floor, tested on 24.04 only. Generic
-   amd64 via AppImage; distro `.deb`s per-target (see §5).
+2. Build floor: **Debian Trixie (13) first** (locked 2026-11-24, supersedes
+   24.04). V1 `.deb` + AppImage built in `debian:trixie-slim`. Ubuntu
+   24.04 and generic builds deferred to post-V1 as separate artifacts
+   (a Trixie glibc floor will NOT run on 24.04 by design — forward compat
+   only, so Ubuntu needs its own container build later).
 3. `ditaa` fence handling: **deferred to post-V1** (locked). V1 renders
    `ditaa` fences as verbatim code + "not supported offline" banner.
    No svgbob substitution in V1 to avoid fidelity confusion.
@@ -128,18 +133,15 @@ Test matrix (Step 2 gate):
 
 ## 5. Risks + distro support
 
-- mermaid v12 on WebKitGTK. Mitigation: Phase 0 spike on 24.04 WebKit;
-  fallback v11/tiny-only. 24.04 WebKit (~2.48+) is much safer than 22.04.
-- Distro support (Ubuntu 24.04 floor): building on 24.04 sets glibc
-  floor to 24.04's glibc, so output will NOT run on 22.04 by design.
-  Ubuntu 24.04 `.deb` installs on 24.04-based (Mint 22+, Pop!_OS 24.04).
-  Debian Trixie (13): do NOT reuse the Ubuntu `.deb` — different
-  webkit2gtk/libsoup builds and package revisions. Provide a second
-  `.deb` built in a `debian:trixie-slim` container, plus AppImage built
-  on 24.04 as the generic-amd64 fallback (bundles most deps, still needs
-  FUSE or `--appimage-extract`). All amd64; no arm64 in V1.
-  Phase 2 verifies: clean 24.04 VM + clean Trixie container/VM install
-  and launch, `ldd` clean, no egress.
+- mermaid v12 on WebKitGTK. Mitigation: Phase 0 spike on Trixie WebKit;
+  fallback v11/tiny-only.
+- Distro support (Trixie-first): V1 builds in `debian:trixie-slim`, so
+  glibc floor = Trixie. V1 runs on Trixie and newer, NOT on Ubuntu 24.04
+  (older glibc) by design. Post-V1 adds a second `.deb` built on
+  `ubuntu:24.04` for Ubuntu/Mint/Pop, same code. AppImage V1 comes from
+  the Trixie container (needs FUSE or `--appimage-extract-and-run`).
+  All amd64; no arm64 in V1. Phase 2 verifies clean Trixie install +
+  launch, `ldd` clean, no egress.
 - Double-Graphviz weight (`viz-global.js` + `@viz-js/viz`). Mitigation:
   isolate globals, lazy-load, measure.
 - SVG XSS surface. Mitigation: DOMPurify after every render + CSP,
