@@ -1,1 +1,6 @@
-viewer
+node_modules/
+web/dist/
+web/node_modules/
+dist/
+*.log
+.DS_Store
