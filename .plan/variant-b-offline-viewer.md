@@ -26,10 +26,10 @@ the system WebView (WebKitGTK on Linux). Markdown via `markdown-it`,
 math via bundled KaTeX + local fonts, code via highlight.js, diagrams
 via vendored JS/WASM: `mermaid` (tiny default, full on demand),
 `@plantuml/core` TeaVM JS path, `@viz-js/viz` for dot, `wavedrom`,
-`nomnoml`, `svgbob-wasm` for ascii. Sanitization via DOMPurify + strict
+`nomnoml`. Sanitization via DOMPurify + strict
 CSP after every render. Rust shell stays minimal: CLI arg, single-instance,
 parent-dir file watch, dialog/opener/store plugins, `.deb` + AppImage
-built on Ubuntu 22.04.
+built on Ubuntu 24.04. `ditaa` deferred to post-V1 (verbatim + banner).
 
 Rejected alternatives and decisive drawback:
 
@@ -50,15 +50,14 @@ Rejected alternatives and decisive drawback:
 Verified blockers recorded so future readers need not re-prove:
 
 - Native Java-ditaa pixel parity in JS is unavailable; no maintained
-  canonical ditaa-JS port found Nov 2026. Hence `ditaa` fence is
-  best-effort via svgbob + verbatim fallback, explicitly labeled.
+  canonical ditaa-JS port found Nov 2026. Hence `ditaa` deferred to
+  post-V1 (verbatim code + banner in V1).
 - `@plantuml/core` MIT build excludes AWS/Material/tupadr3 sprites,
   Sudoku diagram, `!include` multi-file, multi-page export. Verified
   from package contents Nov 2026.
-- mermaid v12 targets ES2024 / Safari 17.4+ / Chromium 121+. Ubuntu 22.04
-  WebKitGTK (~2.38-2.42) may fail; fallback is pin mermaid v11 or
-  tiny-only. Must be decided by Phase 0 spike on real 22.04 WebKit,
-  not assumed.
+- mermaid v12 targets ES2024 / Safari 17.4+ / Chromium 121+. Ubuntu 24.04
+  WebKitGTK (~2.48+) expected OK; must still be verified by Phase 0 spike
+  on real 24.04 WebKit, not assumed.
 
 ## 3. Implementation steps
 
@@ -67,14 +66,14 @@ Verified blockers recorded so future readers need not re-prove:
 Scope: plain Vite + Svelte page, `markdown-it` + GFM/task-lists/footnote/
 deflist + `gray-matter` frontmatter strip + DOMPurify + KaTeX bundled +
 highlight.js + lazy `mermaid-tiny`, `@plantuml/core` JS path,
-`@viz-js/viz`, `wavedrom`, `nomnoml`, `svgbob-wasm`. Fixture `.md`
+`@viz-js/viz`, `wavedrom`, `nomnoml`. Fixture `.md`
 covering flow/sequence/class/ER/state/gantt/mindmap, plantuml
-sequence/class/activity/component/state, dot, wavedrom, nomnoml, ascii,
+sequence/class/activity/component/state, dot, wavedrom, nomnoml,
 KaTeX inline/block, hljs python/rust/bash, broken-syntax cases.
 Done: fixture renders with Wi-Fi off in Chrome; bundle-size report
-recorded; mermaid v12 vs v11 decision locked after 22.04 WebKit smoke
+recorded; mermaid v12 vs v11 decision locked after 24.04 WebKit smoke
 (Epiphany or `tauri dev`); no fetch leaves app (devtools offline check).
-Leaves out: Tauri, watch, packaging.
+Leaves out: Tauri, watch, packaging, ditaa.
 
 ### Step 1 — Tauri single-file viewer + watch
 
@@ -92,44 +91,55 @@ edit-back, tabs, global search.
 
 ### Step 2 — Packaging + diagram parity hardening
 
-Scope: Ubuntu 22.04 container/GH `ubuntu-22.04` builds, `.deb`
+Scope: Ubuntu 24.04 container/GH `ubuntu-24.04` builds, `.deb`
 (depends `libwebkit2gtk-4.1-0`, `libgtk-3-0`) + AppImage, `ldd`/lintian
 clean, PlantUML subset corpus + mermaid sample matrix, large-file +
 error-path tests, CSP/mitm offline audit, README unsupported-languages
-doc, `npm audit` + `cargo audit` in CI.
-Done: test matrix below green on clean 22.04 + 24.04 VMs (X11 + Wayland);
+doc (`ditaa` listed as deferred), `npm audit` + `cargo audit` in CI.
+Done: test matrix below green on clean 24.04 VM (X11 + Wayland);
 no egress in tcpdump run; installs verified. Leaves out: PNG/PDF export,
 print CSS, relative-link navigation (Phase 3).
 
 Test matrix (Step 2 gate):
 
-- OS: clean Ubuntu 22.04 (WebKit ~2.42) + 24.04 (WebKit ~2.46), X11 + Wayland.
+- OS: clean Ubuntu 24.04 (WebKit ~2.48+), X11 + Wayland. 22.04 explicitly
+  unsupported (glibc floor). Debian Trixie + generic amd64 covered below.
 - Mermaid: flow, sequence, class, ER, state, gantt, mindmap (full-only),
   100-node stress.
 - PlantUML: sequence, class, activity (new syntax), component, state,
   dark-mode toggle, broken-syntax error card.
-- Other: dot, wavedrom, nomnoml, svgbob-ascii, KaTeX inline/block,
-  hljs python/rust/bash.
+- Other: dot, wavedrom, nomnoml, KaTeX inline/block,
+  hljs python/rust/bash. `ditaa` shows verbatim + banner (deferred).
 - File ops: open via arg, Open-With, second-instance switch, external
   edit (vim/VS Code atomic-save), rename-away + recreate, 5 MB log-like
   md, relative image path.
 
-## 4. Open decisions (interview before Phase 1)
+## 4. Decisions (locked 2026-11-24)
 
-1. Svelte (recommended, smallest bundle/RAM) vs React — default Svelte
-   unless team objects. Cost of React: larger bundle, same WebKit risk.
-2. Ubuntu 22.04 as glibc/WebKit floor — default yes. Cost of 24.04-only:
-   breaks 22.04 LTS users with `GLIBC_X.XX not found`.
-3. `ditaa` fence handling — default best-effort svgbob substitution with
-   explicit label + verbatim fallback. Alternative: verbatim-only, zero
-   fidelity risk but less useful.
-4. `.deb`-only vs `.deb` + AppImage in V1 — default both; AppImage adds
-   ~70 MB but portable.
+1. Frontend: **Svelte + Vite SPA** (locked). No SSR/router.
+2. Build floor: **Ubuntu 24.04** (locked). Drops Ubuntu 22.04 support:
+   binaries require 24.04 glibc floor, tested on 24.04 only. Generic
+   amd64 via AppImage; distro `.deb`s per-target (see §5).
+3. `ditaa` fence handling: **deferred to post-V1** (locked). V1 renders
+   `ditaa` fences as verbatim code + "not supported offline" banner.
+   No svgbob substitution in V1 to avoid fidelity confusion.
+4. Packaging V1: **`.deb` + AppImage** (default kept). `.deb` is
+   distro-specific; AppImage is the generic-amd64 route.
 
-## 5. Risks
+## 5. Risks + distro support
 
-- mermaid v12 on old WebKitGTK (highest). Mitigation: Phase 0 spike,
-  fallback v11/tiny-only.
+- mermaid v12 on WebKitGTK. Mitigation: Phase 0 spike on 24.04 WebKit;
+  fallback v11/tiny-only. 24.04 WebKit (~2.48+) is much safer than 22.04.
+- Distro support (Ubuntu 24.04 floor): building on 24.04 sets glibc
+  floor to 24.04's glibc, so output will NOT run on 22.04 by design.
+  Ubuntu 24.04 `.deb` installs on 24.04-based (Mint 22+, Pop!_OS 24.04).
+  Debian Trixie (13): do NOT reuse the Ubuntu `.deb` — different
+  webkit2gtk/libsoup builds and package revisions. Provide a second
+  `.deb` built in a `debian:trixie-slim` container, plus AppImage built
+  on 24.04 as the generic-amd64 fallback (bundles most deps, still needs
+  FUSE or `--appimage-extract`). All amd64; no arm64 in V1.
+  Phase 2 verifies: clean 24.04 VM + clean Trixie container/VM install
+  and launch, `ldd` clean, no egress.
 - Double-Graphviz weight (`viz-global.js` + `@viz-js/viz`). Mitigation:
   isolate globals, lazy-load, measure.
 - SVG XSS surface. Mitigation: DOMPurify after every render + CSP,
