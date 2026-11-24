@@ -15,6 +15,9 @@
   },
   "dependencies": {
     "@plantuml/core": "^1.2026.10",
+    "@tauri-apps/api": "^2.12.5",
+    "@tauri-apps/plugin-fs": "^2.7.1",
+    "@tauri-apps/plugin-store": "^2.5.1",
     "@viz-js/viz": "^3.31.0",
     "dompurify": "^3.5.0",
     "gray-matter": "^4.0.3",
