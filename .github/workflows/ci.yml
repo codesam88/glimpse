@@ -1,0 +1,184 @@
+name: CI
+
+# Trixie-first packaging pipeline.
+# V1 targets Debian Trixie (13) only; Ubuntu 24.04 and generic rebuilds are
+# explicitly deferred to post-V1 (a Trixie glibc floor will NOT run on 24.04).
+
+'on':
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: Web build + offline check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Build web
+        working-directory: web
+        run: npm run build
+
+      - name: Record dist size
+        run: |
+          echo "### web/dist size" >> "$GITHUB_STEP_SUMMARY"
+          du -sh web/dist | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Top files by size:" >> "$GITHUB_STEP_SUMMARY"
+          find web/dist -type f -printf '%s %p\n' | sort -rn | head -20 | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Offline reference check (non-blocking)
+        run: |
+          if grep -RInE 'https?://' web/dist --include='*.js' --include='*.html' --include='*.css' | grep -v 'data:' | head -20; then
+            echo "::warning::Built assets contain http(s):// references; review for runtime network access."
+          else
+            echo "No http(s):// references found in built assets."
+          fi
+
+      - name: npm audit (non-blocking)
+        working-directory: web
+        continue-on-error: true
+        run: npm audit --audit-level=moderate || true
+
+      - name: Upload web dist
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: web-dist
+          path: web/dist
+          if-no-files-found: error
+          retention-days: 7
+
+  trixie:
+    name: Trixie .deb + AppImage
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    container:
+      image: debian:trixie-slim
+    permissions:
+      contents: read
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      CARGO_TERM_COLOR: always
+      APPIMAGE_EXTRACT_AND_RUN: '1'
+      ARCH: x86_64
+    steps:
+      - name: Install base tooling
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates curl wget git build-essential pkg-config \
+            file xz-utils
+
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+
+      - name: Install Node 22
+        run: |
+          curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+          apt-get install -y --no-install-recommends nodejs
+          node --version
+          npm --version
+
+      - name: Install Rust stable
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          "$HOME/.cargo/bin/rustc" --version
+          "$HOME/.cargo/bin/cargo" --version
+
+      - name: Install Tauri system dependencies
+        run: |
+          apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            librsvg2-dev \
+            patchelf \
+            fuse libfuse2 \
+            libssl-dev \
+            libdbus-1-dev \
+            libxdo-dev
+          # AppIndicator package name varies by distro release; non-fatal.
+          apt-get install -y --no-install-recommends libayatana-appindicator3-dev \
+            || apt-get install -y --no-install-recommends libappindicator3-dev \
+            || true
+
+      - name: Cache cargo
+        uses: actions/cache@v4.2.1
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin
+            src-tauri/target
+          key: trixie-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: |
+            trixie-cargo-
+
+      - name: Cache npm
+        uses: actions/cache@v4.2.1
+        with:
+          path: ~/.npm
+          key: trixie-npm-${{ hashFiles('web/package-lock.json') }}
+          restore-keys: |
+            trixie-npm-
+
+      - name: Install Tauri CLI
+        run: npm install -g @tauri-apps/cli@2
+
+      - name: Build web
+        working-directory: web
+        run: npm ci && npm run build
+
+      - name: Tauri build (.deb + AppImage)
+        working-directory: src-tauri
+        run: |
+          source "$HOME/.cargo/env"
+          npx @tauri-apps/cli build --bundles deb,appimage
+
+      - name: Record bundle artifacts
+        run: |
+          echo "### Trixie bundles" >> "$GITHUB_STEP_SUMMARY"
+          find src-tauri/target/release/bundle -type f \( -name '*.deb' -o -name '*.AppImage' \) -printf '%f %s bytes\n' | tee -a "$GITHUB_STEP_SUMMARY"
+          sha256sum src-tauri/target/release/bundle/deb/*.deb src-tauri/target/release/bundle/appimage/*.AppImage 2>/dev/null || true
+
+      - name: cargo audit (non-blocking)
+        working-directory: src-tauri
+        continue-on-error: true
+        run: |
+          source "$HOME/.cargo/env"
+          if ! command -v cargo-audit >/dev/null 2>&1; then
+            cargo install cargo-audit --locked || exit 0
+          fi
+          cargo audit || true
+
+      - name: Upload Trixie bundles
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: md-viewer-trixie
+          path: |
+            src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
+          retention-days: 14
