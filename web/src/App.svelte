@@ -526,9 +526,13 @@
   }
 
   function wrapSelection(kind) {
-    if (!editorView) return
+    if (!editorView) { showStatus('select text in the editor first'); return }
     const sel = editorView.state.selection.main
     const selected = editorView.state.sliceDoc(sel.from, sel.to)
+    if (!selected.length && sel.from === 0 && sel.to === 0) {
+      showStatus('select text in the editor first')
+      return
+    }
     const replacement = wrapWithMarkers(selected, kind)
     const placeholder = ({ addition: 'added', deletion: 'removed', highlight: 'highlighted', comment: 'comment' })[kind] || 'text'
     editorView.dispatch({
@@ -584,6 +588,22 @@
     editingCommentText = ''
     editingCommentAuthor = ''
   }
+  async function focusNewComment(item) {
+    if (!item) {
+      sidebarOpen = true
+      setSidebarTab('comments')
+      persist('sidebarOpen', true)
+      return
+    }
+    sidebarOpen = true
+    setSidebarTab('comments')
+    persist('sidebarOpen', true)
+    await tick()
+    startEditComment(item)
+    await tick()
+    const ta = document.querySelector('.comment-text-input')
+    if (ta) { ta.focus(); try { ta.selectionStart = ta.selectionEnd = ta.value.length } catch {} }
+  }
   function criticIndexFor(item) {
     const idx = commentItems.findIndex((c) => c.id === item.id)
     let ci = 0
@@ -618,20 +638,7 @@
       await tick()
       const newItem = commentItems.find((c) => !beforeIds.has(c.id)) ||
         commentItems.filter((c) => c.line >= item.line).pop()
-      if (newItem) {
-        sidebarOpen = true
-        setSidebarTab('comments')
-        persist('sidebarOpen', true)
-        await tick()
-        startEditComment(newItem)
-        await tick()
-        const ta = document.querySelector('.comment-text-input')
-        if (ta) { ta.focus(); try { ta.selectionStart = ta.selectionEnd = ta.value.length } catch {} }
-      } else {
-        sidebarOpen = true
-        setSidebarTab('comments')
-        persist('sidebarOpen', true)
-      }
+      await focusNewComment(newItem)
     }
   }
   function cancelReviewMode() {
@@ -822,7 +829,7 @@
       // ensure at least one source line
       endLine = startLine + 1
     }
-    // debug removed
+    // instrumentation removed
     if (isNaN(startLine)) return null
     if (isNaN(endLine)) endLine = text.split('\n').length
     return { startLine, endLine }
@@ -830,12 +837,14 @@
 
   async function applyBlockEdit(blockEl, transform) {
     const range = blockSourceRange(blockEl)
+    // instrumentation removed
     if (!range) return { ok: false, line: null }
     const lines = text.split('\n')
     const startOff = lineOffset(lines, range.startLine)
     const endOff = lineOffset(lines, range.endLine)
     const chunk = text.slice(startOff, endOff)
     const newChunk = transform(chunk)
+    // instrumentation removed
     if (newChunk === null || newChunk === chunk) return { ok: false, line: range.startLine }
     const newText = text.slice(0, startOff) + newChunk + text.slice(endOff)
     await applyTransformedText(newText)
@@ -844,6 +853,10 @@
 
   async function onPreviewMouseUp() {
     if (!reviewMode || !previewEl) return
+    statusMessage = ''
+    clearTimeout(statusTimer)
+    const _sel = window.getSelection()
+    // instrumentation removed
     const sel = window.getSelection()
     if (!sel || sel.rangeCount === 0) return
     const range = sel.getRangeAt(0)
@@ -853,8 +866,10 @@
     const endNode = range.endContainer.nodeType === 3 ? range.endContainer.parentElement : range.endContainer
     const startBlock = startNode ? startNode.closest('[data-source-line]') : null
     const endBlock = endNode ? endNode.closest('[data-source-line]') : null
+    // instrumentation removed
 
     if (!startBlock || !endBlock) {
+      showStatus('cannot place comment here')
       sel.removeAllRanges()
       return
     }
@@ -894,32 +909,41 @@
         })
         blockLine = res.line
       } else {
-        res = await applyBlockEdit(startBlock, (chunk) => {
-          if (chunk.endsWith('\n')) return chunk.slice(0, -1) + ' {>> <<}\n'
-          return chunk + ' {>> <<}'
+        // instrumentation removed
+        const clickNode = range.startContainer.nodeType === 3 ? range.startContainer : range.startContainer.firstChild
+        const clickOffset = range.startOffset
+        const renderedPrefix = (clickNode && clickNode.textContent) ? clickNode.textContent.slice(0, clickOffset) : ''
+        const r = blockSourceRange(startBlock)
+        const linesArr = text.split('\n')
+        const startOff = r ? lineOffset(linesArr, r.startLine) : -1
+        const endOff = r ? lineOffset(linesArr, r.endLine) : -1
+        if (startOff < 0) {
+          showStatus('cannot place comment here')
+          sel.removeAllRanges()
+          return
+        }
+        const chunk = text.slice(startOff, endOff)
+        let pos = -1
+        if (renderedPrefix.trim()) {
+          pos = chunk.indexOf(renderedPrefix)
+          if (pos === -1) pos = chunk.lastIndexOf(renderedPrefix.trim())
+        }
+        if (renderedPrefix.trim() && pos === -1) {
+          showStatus('cannot place comment here')
+          sel.removeAllRanges()
+          return
+        }
+        const insertAt = pos === -1 ? chunk.length : pos + renderedPrefix.length
+        res = await applyBlockEdit(startBlock, (c) => {
+          return c.slice(0, insertAt) + ' {>> <<}' + c.slice(insertAt)
         })
         blockLine = res.line
       }
       if (res.ok) {
         reviewMode = null
-        // auto-focus the new comment card
-        await tick()
         const newItem = commentItems.find((c) => !beforeIds.has(c.id)) ||
           commentItems.filter((c) => blockLine == null || c.line >= blockLine).pop()
-        if (newItem) {
-          sidebarOpen = true
-          setSidebarTab('comments')
-          persist('sidebarOpen', true)
-          await tick()
-          startEditComment(newItem)
-          await tick()
-          const ta = document.querySelector('.comment-text-input')
-          if (ta) { ta.focus(); try { ta.selectionStart = ta.selectionEnd = ta.value.length } catch {} }
-        } else {
-          sidebarOpen = true
-          setSidebarTab('comments')
-          persist('sidebarOpen', true)
-        }
+        await focusNewComment(newItem)
       }
     }
     try { sel.removeAllRanges() } catch (e) {}
