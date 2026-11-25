@@ -12,7 +12,12 @@
   --table-border: #d0d7de;
   --table-header-bg: #f6f8fa;
   --table-zebra-bg: #f6f8fa;
+  color-scheme: light;
 }
+html.dark { color-scheme: dark; }
+/* CodeMirror editor line-number gutter follows dark themes */
+html.dark .editor-pane .cm-gutters { background: var(--app-toolbar-bg); color: var(--app-fg); border-color: var(--app-border); }
+html.dark .editor-pane .cm-activeLineGutter { background: var(--code-bg); }
 :root { font-family: system-ui, -apple-system, sans-serif; }
 body { margin: 0; padding: 1rem; background: var(--app-bg); color: var(--app-fg); }
 * { box-sizing: border-box; }

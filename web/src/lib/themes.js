@@ -201,6 +201,7 @@ export function applyTheme(id) {
   const root = document.documentElement
   root.setAttribute('data-theme', theme.id)
   root.classList.toggle('dark', !!theme.dark)
+  root.style.colorScheme = theme.dark ? 'dark' : 'light'
   for (const [k, v] of Object.entries(theme.vars)) {
     root.style.setProperty(k, v)
   }

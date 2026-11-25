@@ -594,8 +594,11 @@
 </div>
 
 <style>
-  .toolbar { display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; align-items: center; }
+  .toolbar { display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; align-items: center; position: sticky; top: 0; z-index: 50; background: var(--app-toolbar-bg); padding: 0.5rem 0.75rem; border-radius: 4px; }
   .toolbar button, .file-label, .theme-picker { padding: 0.4rem 0.8rem; border: 1px solid var(--app-border); border-radius: 4px; background: var(--app-toolbar-bg); color: var(--app-fg); cursor: pointer; }
+  .toolbar select option { background: var(--app-toolbar-bg); color: var(--app-fg); }
+  .zoom { color: var(--app-fg); }
+
   .file-label input { display: none; }
   .status { color: var(--app-fg); opacity: 0.7; }
   .status.error { color: #b00020; opacity: 1; }
