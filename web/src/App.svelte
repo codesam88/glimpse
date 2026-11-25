@@ -33,6 +33,10 @@
   let outlineItems = []
   let commentItems = []
   let activeHeadingLine = null
+  // sidebar comment editing
+  let editingCommentId = null
+  let editingCommentText = ''
+  let editingCommentAuthor = ''
   let activeCommentId = null
   let currentPath = ''
   let unwatch = null
@@ -251,10 +255,12 @@
         const line = block ? parseInt(block.getAttribute('data-source-line'), 10) : NaN
         const safeLine = isNaN(line) ? 0 : line
         const anchor = el.getClientRects && el.getClientRects().length ? el : (block || findAnchorForLine(safeLine))
+        const _parsed = parseCommentAuthor((el.textContent || '').trim())
         commentItems.push({
           id: 'c-' + (idx++),
           kind,
-          text: (el.textContent || '').trim(),
+          text: _parsed.text,
+          author: _parsed.author,
           line: safeLine,
           el,
           anchorEl: anchor,
@@ -272,10 +278,12 @@
       const line = masked.slice(0, m.index).split('\n').length - 1
       const excerpt = m[1].trim().replace(/\s+/g, ' ')
       const anchor = findAnchorForLine(line)
+      const _parsed2 = parseCommentAuthor(excerpt)
       commentItems.push({
         id: 'c-' + (idx++),
         kind: 'html',
-        text: excerpt,
+        text: _parsed2.text,
+        author: _parsed2.author,
         line,
         el: null,
         anchorEl: anchor,
@@ -540,6 +548,39 @@
   function toggleComments() {
     hideComments = !hideComments
     persist('hideComments', hideComments)
+  }
+  function parseCommentAuthor(raw) {
+    const m = String(raw || '').trim().match(/^@([A-Za-z0-9_-]+)[:\s]\s*([\s\S]*)$/)
+    if (m) return { author: m[1], text: m[2].trim() }
+    return { author: null, text: String(raw || '').trim() }
+  }
+  function startEditComment(item) {
+    editingCommentId = item.id
+    editingCommentAuthor = item.author || ''
+    editingCommentText = item.text || ''
+  }
+  function cancelEditComment() {
+    editingCommentId = null
+    editingCommentText = ''
+    editingCommentAuthor = ''
+  }
+  function saveEditComment(item) {
+    const newInner = editingCommentAuthor ? ('@' + editingCommentAuthor + ': ' + editingCommentText).trim() : editingCommentText.trim()
+    // replace nth critic comment occurrence in source (occurrence index counted
+    // among critic-kind items only — obsidian/HTML cards are read-only in V1)
+    const criticItems = commentItems.filter((c) => c.kind === 'critic')
+    const pos = criticItems.findIndex((c) => c.id === item.id)
+    if (pos === -1) { showStatus('only {>>..<<} comments are editable'); cancelEditComment(); return }
+    const occ = pos
+    let count = 0
+    const newText = text.replace(/\{>>([\s\S]*?)<<\}/g, (m) => {
+      if (count++ !== occ) return m
+      return '{>> ' + newInner + ' <<}'
+    })
+    if (newText !== text) {
+      applyTransformedText(newText)
+    }
+    cancelEditComment()
   }
   function cancelReviewMode() {
     reviewMode = null
@@ -1109,17 +1150,33 @@
             {/if}
             <div class="comment-cards">
               {#each commentItems as c (c.id)}
-                <button
-                  class="comment-card"
-                  class:active={c.id === activeCommentId}
-                  data-testid="comment-card"
-                  data-kind={c.kind}
-                  data-line={c.line}
-                  on:click={() => scrollToComment(c)}
-                >
-                  <div class="comment-excerpt">{c.text || '(empty)'}</div>
-                  <div class="comment-meta">Line {c.line + 1} · {c.kind}</div>
-                </button>
+                {#if editingCommentId === c.id}
+                  <div class="comment-card editing" data-testid="comment-card" data-kind={c.kind} data-line={c.line}>
+                    <input class="comment-author-input" placeholder="author" bind:value={editingCommentAuthor} />
+                    <textarea class="comment-text-input" bind:value={editingCommentText}></textarea>
+                    <div class="comment-edit-actions">
+                      <button on:click={() => saveEditComment(c)} data-testid="comment-save">Save</button>
+                      <button on:click={cancelEditComment}>Cancel</button>
+                    </div>
+                  </div>
+                {:else}
+                  <div
+                    class="comment-card"
+                    class:active={c.id === activeCommentId}
+                    data-testid="comment-card"
+                    data-kind={c.kind}
+                    data-line={c.line}
+                    role="button"
+                    tabindex="0"
+                    on:click={() => scrollToComment(c)}
+                    on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') scrollToComment(c) }}
+                  >
+                    {#if c.author}<div class="comment-author">@{c.author}</div>{/if}
+                    <div class="comment-excerpt">{c.text || '(empty)'}</div>
+                    <div class="comment-meta">Line {c.line + 1} · {c.kind}</div>
+                    {#if c.kind === 'critic'}<button class="comment-edit-btn" data-testid="comment-edit" on:click|stopPropagation={() => startEditComment(c)}>Edit</button>{/if}
+                  </div>
+                {/if}
               {/each}
             </div>
           {/if}
@@ -1183,6 +1240,12 @@
   .comment-card { text-align: left; width: 100%; padding: 0.5rem; border: 1px solid var(--app-border); border-radius: 6px; background: var(--md-bg); color: var(--md-fg); cursor: pointer; }
   .comment-card.active { border-color: var(--app-accent); box-shadow: 0 0 0 1px var(--app-accent); }
   .comment-excerpt { font-size: 0.85rem; margin-bottom: 0.25rem; word-break: break-word; }
+  .comment-author { font-size: 0.75rem; font-weight: 700; color: var(--app-accent); margin-bottom: 0.15rem; }
+  .comment-edit-btn { margin-top: 0.25rem; padding: 0.15rem 0.4rem; font-size: 0.7rem; border: 1px solid var(--app-border); border-radius: 4px; background: var(--app-bg); color: var(--app-fg); cursor: pointer; }
+  .comment-card.editing { display: flex; flex-direction: column; gap: 0.35rem; }
+  .comment-author-input, .comment-text-input { width: 100%; border: 1px solid var(--app-border); border-radius: 4px; background: var(--app-bg); color: var(--app-fg); padding: 0.3rem; font-size: 0.8rem; }
+  .comment-text-input { min-height: 3rem; resize: vertical; }
+  .comment-edit-actions { display: flex; gap: 0.25rem; }
   .comment-meta { font-size: 0.7rem; opacity: 0.7; }
   .divider { background: var(--app-border); cursor: col-resize; }
   .rendered { line-height: 1.6; color: var(--md-fg); background: var(--md-bg); }
