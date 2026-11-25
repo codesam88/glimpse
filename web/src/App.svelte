@@ -17,6 +17,9 @@
   let zoom = 1
   let diagramsEnabled = true
   let hideComments = false
+  // review modes
+  let reviewMode = null // null | 'highlight' | 'note'
+  let statusMessage = ''
   // sidebar
   let sidebarOpen = true
   let sidebarTab = 'outline'
@@ -538,6 +541,107 @@
     hideComments = !hideComments
     persist('hideComments', hideComments)
   }
+  function cancelReviewMode() {
+    reviewMode = null
+  }
+
+  function lineOffset(lines, lineIndex) {
+    let off = 0
+    for (let i = 0; i < lineIndex; i++) off += (lines[i] ? lines[i].length : 0) + 1
+    return off
+  }
+
+  function blockSourceRange(blockEl) {
+    const startLine = parseInt(blockEl.getAttribute('data-source-line'), 10)
+    const all = Array.from(previewEl.querySelectorAll('[data-source-line]'))
+    const idx = all.indexOf(blockEl)
+    let endLine = text.split('\n').length
+    if (idx >= 0 && idx < all.length - 1) {
+      endLine = parseInt(all[idx + 1].getAttribute('data-source-line'), 10)
+    }
+    if (isNaN(endLine) || endLine <= startLine) {
+      // ensure at least one source line
+      endLine = startLine + 1
+    }
+    // debug removed
+    if (isNaN(startLine)) return null
+    if (isNaN(endLine)) endLine = text.split('\n').length
+    return { startLine, endLine }
+  }
+
+  function applyBlockEdit(blockEl, transform) {
+    const range = blockSourceRange(blockEl)
+    if (!range) return false
+    const lines = text.split('\n')
+    const startOff = lineOffset(lines, range.startLine)
+    const endOff = lineOffset(lines, range.endLine)
+    const chunk = text.slice(startOff, endOff)
+    const newChunk = transform(chunk)
+    if (newChunk === null || newChunk === chunk) return false
+    const newText = text.slice(0, startOff) + newChunk + text.slice(endOff)
+    applyTransformedText(newText)
+    return true
+  }
+
+  function onPreviewMouseUp() {
+    if (!reviewMode || !previewEl) return
+    // (debug removed)
+    const sel = window.getSelection()
+    if (!sel || sel.rangeCount === 0) return
+    const range = sel.getRangeAt(0)
+    if (!previewEl.contains(range.commonAncestorContainer)) return
+
+    const startNode = range.startContainer.nodeType === 3 ? range.startContainer.parentElement : range.startContainer
+    const endNode = range.endContainer.nodeType === 3 ? range.endContainer.parentElement : range.endContainer
+    const startBlock = startNode ? startNode.closest('[data-source-line]') : null
+    const endBlock = endNode ? endNode.closest('[data-source-line]') : null
+
+    if (!startBlock || !endBlock) {
+      sel.removeAllRanges()
+      return
+    }
+    if (startBlock !== endBlock) {
+      showStatus('select within one paragraph')
+      return
+    }
+
+    const selected = sel.toString()
+    if (reviewMode === 'highlight') {
+      if (!selected.trim()) { sel.removeAllRanges(); return }
+      const ok = applyBlockEdit(startBlock, (chunk) => {
+        const pos = chunk.indexOf(selected)
+        if (pos === -1) { showStatus('selection not found in source'); return null }
+        return chunk.slice(0, pos) + '{==' + selected + '==}' + chunk.slice(pos + selected.length)
+      })
+      // debug removed
+      if (ok) { reviewMode = null }
+      else if (statusMessage === '') { /* keep mode */ }
+    } else if (reviewMode === 'note') {
+      if (selected.trim()) {
+        const ok = applyBlockEdit(startBlock, (chunk) => {
+          const pos = chunk.indexOf(selected)
+          if (pos === -1) { showStatus('selection not found in source'); return null }
+          const wrapped = '{==' + selected + ' {>> <<}==}'
+          return chunk.slice(0, pos) + wrapped + chunk.slice(pos + selected.length)
+        })
+        if (ok) reviewMode = null
+      } else {
+        // collapsed: append empty bubble at end of block
+        const ok = applyBlockEdit(startBlock, (chunk) => {
+          if (chunk.endsWith('\n')) return chunk.slice(0, -1) + ' {>> <<}\n'
+          return chunk + ' {>> <<}'
+        })
+        if (ok) reviewMode = null
+      }
+    }
+    try { sel.removeAllRanges() } catch (e) {}
+  }
+  function showStatus(msg) {
+    statusMessage = msg
+    clearTimeout(statusTimer)
+    statusTimer = setTimeout(() => { statusMessage = '' }, 2500)
+  }
+  let statusTimer = null
 
   function toggleSidebar() {
     sidebarOpen = !sidebarOpen
@@ -686,6 +790,8 @@
         case 'sidebar.tabOutline': setSidebarTab('outline'); break
         case 'sidebar.tabComments': setSidebarTab('comments'); break
         case 'comments.toggleVisibility': toggleComments(); break
+        case 'review.highlightMode': reviewMode = 'highlight'; break
+        case 'review.noteMode': reviewMode = 'note'; break
         case 'debug.toggle':
           if (debugEnabled) { debugEnabled = !debugEnabled; persist('debug', debugEnabled) }
           break
@@ -821,6 +927,9 @@
     if (e.key === 'Escape' && debugOpen) {
       closeDebugMenu()
     }
+    if (e.key === 'Escape' && reviewMode) {
+      cancelReviewMode()
+    }
   }
   function onGlobalClick(e) {
     if (!debugOpen || !debugMenuEl) return
@@ -876,6 +985,13 @@
 
   <div class="toolbar-spacer"></div>
 
+  {#if reviewMode}
+    <span class="mode-badge" role="status">
+      {reviewMode === 'highlight' ? 'Highlight mode — select text in preview' : 'Note mode — click or select text'}
+      <button on:click={cancelReviewMode} title="Cancel (Esc)">✕</button>
+    </span>
+  {/if}
+
   <div class="toolbar-group view-group">
     <button on:click={toggleViewMode} data-testid="view-mode-toggle" aria-label="Toggle view mode" title="Toggle preview/split view">
       View: <span class:active={viewMode === 'preview'}>Preview</span> / <span class:active={viewMode === 'split'}>Split</span>
@@ -914,6 +1030,9 @@
     {#if dirty}
       <span class="dirty">unsaved</span>
     {/if}
+    {#if statusMessage}
+      <span class="status">{statusMessage}</span>
+    {/if}
   </div>
 </div>
 
@@ -946,7 +1065,7 @@
   </div>
   <div class="divider" on:mousedown={startResize}></div>
   <div class="pane preview-pane" bind:this={previewPaneEl}>
-    <div class="preview-scroll" class:hide-comments={hideComments} bind:this={previewEl} on:scroll={handlePreviewScroll}>
+    <div class="preview-scroll" class:hide-comments={hideComments} bind:this={previewEl} on:scroll={handlePreviewScroll} on:mouseup={onPreviewMouseUp} class:review-mode={!!reviewMode}>
       <article id="rendered" class="rendered">
         {@html html}
       </article>
@@ -1019,6 +1138,9 @@
   .toolbar-group { display: inline-flex; gap: 0.25rem; align-items: center; }
   .toolbar-spacer { flex: 1 1 auto; min-width: 1rem; }
   .toolbar-end { display: inline-flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+  .mode-badge { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.2rem 0.6rem; border: 1px solid var(--app-accent); border-radius: 999px; background: var(--app-accent); color: #fff; font-size: 0.8rem; }
+  .mode-badge button { border: none; background: transparent; color: #fff; cursor: pointer; padding: 0 0.2rem; height: auto; }
+  .preview-scroll.review-mode { cursor: crosshair; }
   .sidebar-icon-btn { width: 32px; padding: 0; font-size: 1.1rem; font-weight: 700; }
   .debug-menu { position: relative; display: inline-block; }
   .debug-summary { list-style: none; cursor: pointer; user-select: none; }

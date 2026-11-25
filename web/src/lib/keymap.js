@@ -19,6 +19,8 @@ export const DEFAULT_BINDINGS = {
   'sidebar.tabOutline': ['Alt+1'],
   'sidebar.tabComments': ['Alt+2'],
   'comments.toggleVisibility': ['Alt+c'],
+  'review.highlightMode': ['Ctrl+h'],
+  'review.noteMode': ['Ctrl+n'],
   'debug.toggle': ['Alt+Shift+d'],
   'file.save': ['Ctrl+s'],
   'file.open': ['Ctrl+o'],
