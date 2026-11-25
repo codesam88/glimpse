@@ -1351,10 +1351,10 @@
   </div>
 
   <div class="toolbar-group review-group">
-    <button on:click={() => wrapSelection('addition')} title="Wrap addition">Wrap ++</button>
-    <button on:click={() => wrapSelection('deletion')} title="Wrap deletion">Wrap --</button>
-    <button on:click={() => wrapSelection('highlight')} title="Wrap highlight">Wrap ==</button>
-    <button on:click={() => wrapSelection('comment')} title="Wrap comment">Wrap &gt;&gt;</button>
+    <button on:click={() => wrapSelection('addition')} title={"Insertion — wraps selection in {++ ... ++}"}>Insert</button>
+    <button on:click={() => wrapSelection('deletion')} title={"Strikethrough — wraps selection in {-- ... --}"}>Strike</button>
+    <button on:click={() => wrapSelection('highlight')} title={"Highlight — wraps selection in {== ... ==}"}>Highlight</button>
+    <button on:click={() => wrapSelection('comment')} title={"Comment — wraps selection in {>> ... <<}"}>Comment</button>
     <button on:click={acceptAll} title="Accept all changes">Accept all</button>
     <button on:click={rejectAll} title="Reject all changes">Reject all</button>
     <button on:click={acceptSelection} title="Accept selection">Accept sel</button>
