@@ -95,6 +95,9 @@ jobs:
         working-directory: web
         run: npm ci && npm run build
 
+      - name: Clean stale bundles (target/ is cache-restored)
+        run: rm -rf src-tauri/target/release/bundle
+
       - name: Tauri build (${{ inputs.bundle }})
         working-directory: src-tauri
         shell: bash
@@ -123,8 +126,6 @@ jobs:
         uses: actions/upload-artifact@v4.6.2
         with:
           name: glimpse-${{ inputs.bundle }}
-          path: |
-            src-tauri/target/release/bundle/deb/*.deb
-            src-tauri/target/release/bundle/appimage/*.AppImage
+          path: ${{ inputs.bundle == 'appimage' && 'src-tauri/target/release/bundle/appimage/*.AppImage' || 'src-tauri/target/release/bundle/deb/*.deb' }}
           if-no-files-found: error
           retention-days: 14
