@@ -6,6 +6,7 @@ import texmath from 'markdown-it-texmath'
 import markdownItCritic from 'markdown-it-critic'
 import katex from 'katex'
 import hljs from 'highlight.js'
+import { Slugger } from './slug.js'
 
 import 'katex/dist/katex.min.css'
 
@@ -42,16 +43,6 @@ function diagramPlugin(md) {
     }
     return defaultFence ? defaultFence(tokens, idx, options, env, self) : self.renderToken(tokens, idx, options)
   }
-}
-
-function slugify(text) {
-  return String(text || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, '')
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
 }
 
 function shortenLinkLabel(href, text) {
@@ -112,20 +103,14 @@ function linkEnhancePlugin(md) {
 
 function headingIdPlugin(md) {
   md.core.ruler.after('source_line', 'heading_ids', (state) => {
-    const seen = {}
+    const slugger = new Slugger()
     for (let i = 0; i < state.tokens.length; i++) {
       const token = state.tokens[i]
       if (token.type !== 'heading_open') continue
       let text = ''
       const inline = state.tokens[i + 1]
       if (inline && inline.type === 'inline') text = inline.content
-      let base = slugify(text) || 'section'
-      let slug = base
-      if (seen[base]) {
-        slug = base + '-' + seen[base]
-      }
-      seen[base] = (seen[base] || 0) + 1
-      try { token.attrSet('id', slug) } catch (e) {}
+      try { token.attrSet('id', slugger.slug(text)) } catch (e) {}
     }
   })
 }

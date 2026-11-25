@@ -41,6 +41,10 @@ jobs:
         working-directory: web
         run: npm run build
 
+      - name: Test web
+        working-directory: web
+        run: npm test
+
       - name: Record dist size
         run: |
           echo "### web/dist size" >> "$GITHUB_STEP_SUMMARY"

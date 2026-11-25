@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "test": "vitest run",
     "lint": "eslint src",
     "check": "svelte-check"
   },
@@ -14,9 +15,11 @@
     "@sveltejs/vite-plugin-svelte": "^7.3.1",
     "eslint": "^9.39.5",
     "eslint-plugin-svelte": "^3.24.1",
+    "fast-check": "^4.11.0",
     "svelte": "^5.57.3",
     "svelte-check": "^4.7.8",
-    "vite": "^8.3.6"
+    "vite": "^8.3.6",
+    "vitest": "^5.1.2"
   },
   "dependencies": {
     "@codemirror/commands": "6.11.1",

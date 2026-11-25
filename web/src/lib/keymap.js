@@ -104,7 +104,9 @@ export function specMatchesEvent(spec, e) {
   const isWheel = typeof WheelEvent !== 'undefined' && e instanceof WheelEvent
   if (key.startsWith('Wheel') && !isWheel) return false
   if (!key.startsWith('Wheel') && isWheel) return false
-  return eventKeyToken(e) === key || eventKeyToken(e).toLowerCase() === String(key).toLowerCase()
+  const evKey = eventKeyToken(e)
+  if (evKey == null) return false
+  return evKey === key || String(evKey).toLowerCase() === String(key).toLowerCase()
 }
 
 export function findAction(bindings, e) {
