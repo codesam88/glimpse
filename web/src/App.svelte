@@ -778,23 +778,22 @@
     return { startLine, endLine }
   }
 
-  function applyBlockEdit(blockEl, transform) {
+  async function applyBlockEdit(blockEl, transform) {
     const range = blockSourceRange(blockEl)
-    if (!range) return false
+    if (!range) return { ok: false, line: null }
     const lines = text.split('\n')
     const startOff = lineOffset(lines, range.startLine)
     const endOff = lineOffset(lines, range.endLine)
     const chunk = text.slice(startOff, endOff)
     const newChunk = transform(chunk)
-    if (newChunk === null || newChunk === chunk) return false
+    if (newChunk === null || newChunk === chunk) return { ok: false, line: range.startLine }
     const newText = text.slice(0, startOff) + newChunk + text.slice(endOff)
-    applyTransformedText(newText)
-    return true
+    await applyTransformedText(newText)
+    return { ok: true, line: range.startLine }
   }
 
-  function onPreviewMouseUp() {
+  async function onPreviewMouseUp() {
     if (!reviewMode || !previewEl) return
-    // (debug removed)
     const sel = window.getSelection()
     if (!sel || sel.rangeCount === 0) return
     const range = sel.getRangeAt(0)
@@ -815,32 +814,62 @@
     }
 
     const selected = sel.toString()
+    const beforeIds = new Set(commentItems.map((c) => c.id))
+
     if (reviewMode === 'highlight') {
       if (!selected.trim()) { sel.removeAllRanges(); return }
-      const ok = applyBlockEdit(startBlock, (chunk) => {
+      const res = await applyBlockEdit(startBlock, (chunk) => {
         const pos = chunk.indexOf(selected)
         if (pos === -1) { showStatus('selection not found in source'); return null }
         return chunk.slice(0, pos) + '{==' + selected + '==}' + chunk.slice(pos + selected.length)
       })
-      // debug removed
-      if (ok) { reviewMode = null }
-      else if (statusMessage === '') { /* keep mode */ }
+      if (res.ok) reviewMode = null
+    } else if (reviewMode === 'delete') {
+      if (!selected.trim()) { sel.removeAllRanges(); return }
+      const res = await applyBlockEdit(startBlock, (chunk) => {
+        const pos = chunk.indexOf(selected)
+        if (pos === -1) { showStatus('selection not found in source'); return null }
+        return chunk.slice(0, pos) + '{--' + selected + '--}' + chunk.slice(pos + selected.length)
+      })
+      if (res.ok) reviewMode = null
     } else if (reviewMode === 'note') {
+      let res = null
+      let blockLine = null
       if (selected.trim()) {
-        const ok = applyBlockEdit(startBlock, (chunk) => {
+        res = await applyBlockEdit(startBlock, (chunk) => {
           const pos = chunk.indexOf(selected)
           if (pos === -1) { showStatus('selection not found in source'); return null }
           const wrapped = '{==' + selected + ' {>> <<}==}'
           return chunk.slice(0, pos) + wrapped + chunk.slice(pos + selected.length)
         })
-        if (ok) reviewMode = null
+        blockLine = res.line
       } else {
-        // collapsed: append empty bubble at end of block
-        const ok = applyBlockEdit(startBlock, (chunk) => {
+        res = await applyBlockEdit(startBlock, (chunk) => {
           if (chunk.endsWith('\n')) return chunk.slice(0, -1) + ' {>> <<}\n'
           return chunk + ' {>> <<}'
         })
-        if (ok) reviewMode = null
+        blockLine = res.line
+      }
+      if (res.ok) {
+        reviewMode = null
+        // auto-focus the new comment card
+        await tick()
+        const newItem = commentItems.find((c) => !beforeIds.has(c.id)) ||
+          commentItems.filter((c) => blockLine == null || c.line >= blockLine).pop()
+        if (newItem) {
+          sidebarOpen = true
+          setSidebarTab('comments')
+          persist('sidebarOpen', true)
+          await tick()
+          startEditComment(newItem)
+          await tick()
+          const ta = document.querySelector('.comment-text-input')
+          if (ta) { ta.focus(); try { ta.selectionStart = ta.selectionEnd = ta.value.length } catch {} }
+        } else {
+          sidebarOpen = true
+          setSidebarTab('comments')
+          persist('sidebarOpen', true)
+        }
       }
     }
     try { sel.removeAllRanges() } catch (e) {}
@@ -1029,6 +1058,7 @@
         case 'comments.toggleVisibility': toggleComments(); break
         case 'review.highlightMode': reviewMode = 'highlight'; break
         case 'review.noteMode': reviewMode = 'note'; break
+        case 'review.deleteMode': reviewMode = 'delete'; break
         case 'debug.toggle':
           if (debugEnabled) { debugEnabled = !debugEnabled; persist('debug', debugEnabled) }
           break
@@ -1225,7 +1255,7 @@
 
   {#if reviewMode}
     <span class="mode-badge" role="status">
-      {reviewMode === 'highlight' ? 'Highlight mode — select text in preview' : 'Note mode — click or select text'}
+      {reviewMode === 'highlight' ? 'Highlight mode — select text in preview' : reviewMode === 'delete' ? 'Delete mode — select text in preview' : 'Note mode — click or select text'}
       <button on:click={cancelReviewMode} title="Cancel (Esc)">✕</button>
     </span>
   {/if}

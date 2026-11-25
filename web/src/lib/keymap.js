@@ -21,6 +21,7 @@ export const DEFAULT_BINDINGS = {
   'comments.toggleVisibility': ['Alt+c'],
   'review.highlightMode': ['Ctrl+h'],
   'review.noteMode': ['Ctrl+n'],
+  'review.deleteMode': ['Ctrl+d'],
   'debug.toggle': ['Alt+Shift+d'],
   'debug.forceToggle': ['Ctrl+Alt+d'],
   'file.save': ['Ctrl+s'],
