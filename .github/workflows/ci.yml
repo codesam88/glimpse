@@ -65,8 +65,7 @@ jobs:
       - name: License hygiene (frontend bundle)
         working-directory: web
         run: |
-          npx --yes license-checker --production --json > /tmp/licenses.json
-          # Fail on unknown/unidentified licenses only; permissive + weak-copyleft pass.
+          npx --yes license-checker --production --json > /tmp/licenses.json          # Fail on unknown/unidentified licenses only; permissive + weak-copyleft pass.
           node -e "
             const l = require('/tmp/licenses.json');
             const allow = /^(MIT|ISC|BSD-[23]-Clause|Apache-2\.0|0BSD|CC0-1\.0|Unlicense|MPL-2\.0|CC-BY-[0-9.]+|CC-BY-SA-[0-9.]+|Python-2\.0|PSF-2\.0|BlueOak-1\.0\.0|WTFPL|UNLICENSED|\(?MPL-2\.0 OR Apache-2\.0\)?|\(?EPL-2\.0 OR GPL-3\.0-or-later\)?|\(MIT OR [^)]+\))/i;

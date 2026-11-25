@@ -43,7 +43,7 @@ jobs:
         working-directory: dist
         run: |
           ls -la
-          sha256sum *.deb *.AppImage > sha256sums.txt
+          sha256sum -- ./*.deb ./*.AppImage > sha256sums.txt
           cat sha256sums.txt
 
       - name: Publish GitHub Release
@@ -56,5 +56,5 @@ jobs:
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
             --title "Glimpse $TAG" \
             --notes "Trixie (Debian 13) builds. See sha256sums.txt for integrity." \
-            --verify-tag 2>/dev/null || gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber *.deb *.AppImage sha256sums.txt
-          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber *.deb *.AppImage sha256sums.txt
+            --verify-tag 2>/dev/null || gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber ./*.deb ./*.AppImage sha256sums.txt
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber ./*.deb ./*.AppImage sha256sums.txt

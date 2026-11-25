@@ -111,9 +111,15 @@ jobs:
           find src-tauri/target/release/bundle -type f \( -name '*.deb' -o -name '*.AppImage' \) -printf '%f %s bytes\n' | tee -a "$GITHUB_STEP_SUMMARY"
           sha256sum src-tauri/target/release/bundle/deb/*.deb src-tauri/target/release/bundle/appimage/*.AppImage 2>/dev/null || true
 
-      - name: cargo deny (licenses + advisories, blocking)
+      - name: cargo deny (licenses + bans + sources, blocking)
         working-directory: src-tauri
-        uses: EmbarkStudios/cargo-deny-action@ef301417264190a1eb9f26fcf171642070085c5b # v1
+        shell: bash
+        run: |
+          source "$HOME/.cargo/env"
+          if ! command -v cargo-deny >/dev/null 2>&1; then
+            cargo install cargo-deny --locked
+          fi
+          cargo deny check licenses bans sources
 
       - name: cargo audit (non-blocking)
         working-directory: src-tauri
