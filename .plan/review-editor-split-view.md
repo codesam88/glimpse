@@ -1,10 +1,16 @@
 ---
-status: open
+status: in-progress
 priority: p1
 area: review-editor
+gate: trixie-install-test pending (CI builds, manual install check by user)
 ---
 
 # Review + split-view editor (CriticMarkup + CodeMirror 6)
+
+> Code steps 0-2 complete on `feat/review-editor` (commits through
+> `feat(review): Step 2`). Remaining gate: install CI-built Trixie
+> artifact and run the 10-minute smoke (diagrams in WebKit, editor,
+> offline) — see review-step2.md "Trixie gate".
 
 ## 1. Problem / purpose
 
