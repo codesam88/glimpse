@@ -22,6 +22,7 @@ export const DEFAULT_BINDINGS = {
   'review.highlightMode': ['Ctrl+h'],
   'review.noteMode': ['Ctrl+n'],
   'debug.toggle': ['Alt+Shift+d'],
+  'debug.forceToggle': ['Ctrl+Alt+d'],
   'file.save': ['Ctrl+s'],
   'file.open': ['Ctrl+o'],
   // file.reload intentionally unbound: Ctrl+R/Ctrl+Shift+R collide with

@@ -44,6 +44,92 @@ function diagramPlugin(md) {
   }
 }
 
+function slugify(text) {
+  return String(text || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+}
+
+function shortenLinkLabel(href, text) {
+  const h = String(href || '').trim()
+  const t = String(text || '').trim()
+  // only auto-shorten when display text equals the href (autolink case)
+  const normalized = h.replace(/^[a-z][a-z0-9+.-]*:/i, '')
+  if (t !== h && t !== normalized) return t
+  if (/^https?:\/\//i.test(h)) {
+    try {
+      const u = new URL(h)
+      let host = u.hostname
+      if (u.port && u.port !== '80' && u.port !== '443') host += ':' + u.port
+      return host || t
+    } catch (e) { return t }
+  }
+  if (/^mailto:/i.test(h)) return h.replace(/^mailto:/i, '')
+  // file:// or local path -> basename
+  const pathPart = h.replace(/^file:\/\//i, '')
+  const parts = pathPart.split(/[\\/]/)
+  const base = parts[parts.length - 1]
+  return base || t
+}
+
+function linkEnhancePlugin(md) {
+  md.core.ruler.after('linkify', 'link_enhance', (state) => {
+    const processChildren = (children) => {
+      if (!children) return
+      for (let i = 0; i < children.length; i++) {
+        const t = children[i]
+        if (t.type !== 'link_open') continue
+        const href = t.attrGet('href') || ''
+        try { t.attrSet('title', href) } catch (e) {}
+        try { t.attrSet('data-href', href) } catch (e) {}
+        if (t.info !== 'auto') continue
+        let j = i + 1
+        const textTokens = []
+        let textContent = ''
+        while (j < children.length && children[j].type !== 'link_close') {
+          if (children[j].type === 'text') {
+            textTokens.push(children[j])
+            textContent += children[j].content
+          }
+          j++
+        }
+        const label = shortenLinkLabel(href, textContent)
+        if (textTokens.length && label && label !== textContent) {
+          textTokens[0].content = label
+          for (let k = 1; k < textTokens.length; k++) textTokens[k].content = ''
+        }
+      }
+    }
+    for (const tok of state.tokens) {
+      if (tok.type === 'inline' && tok.children) processChildren(tok.children)
+    }
+  })
+}
+
+function headingIdPlugin(md) {
+  md.core.ruler.after('source_line', 'heading_ids', (state) => {
+    const seen = {}
+    for (let i = 0; i < state.tokens.length; i++) {
+      const token = state.tokens[i]
+      if (token.type !== 'heading_open') continue
+      let text = ''
+      const inline = state.tokens[i + 1]
+      if (inline && inline.type === 'inline') text = inline.content
+      let base = slugify(text) || 'section'
+      let slug = base
+      if (seen[base]) {
+        slug = base + '-' + seen[base]
+      }
+      seen[base] = (seen[base] || 0) + 1
+      try { token.attrSet('id', slug) } catch (e) {}
+    }
+  })
+}
+
 export function createMarkdown() {
   const md = new MarkdownIt({
     html: true,
@@ -65,6 +151,24 @@ export function createMarkdown() {
   md.use(footnote)
   md.use(deflist)
   md.use(texmath, { engine: katex, delimiters: 'dollars' })
+  try {
+    md.linkify.add('file:', {
+      validate: (text, pos, self) => {
+        if (!text.slice(pos).startsWith('///')) return 0
+        const m = text.slice(pos).match(/^\/\/\/\S+/)
+        return m ? m[0].length : 0
+      },
+      normalize: (match, self) => self.normalize(match)
+    })
+    // file schema added
+  } catch (e) { console.log('file schema add failed', e) }
+  // allow file: links to render (default markdown-it blocks file: protocol)
+  const _origValidate = md.validateLink.bind(md)
+  md.validateLink = (url) => {
+    const str = String(url || '').trim().toLowerCase()
+    if (str.startsWith('file:')) return true
+    return _origValidate(url)
+  }
   md.use(markdownItCritic)
   // markdown-it-critic's inline rules return true in `silent` mode without
   // advancing state.pos, which crashes markdown-it when validating inside
@@ -138,6 +242,8 @@ export function createMarkdown() {
   })
 
   md.use(sourceLinePlugin)
+  md.use(headingIdPlugin)
+  linkEnhancePlugin(md)
   md.use(diagramPlugin)
 
   return md

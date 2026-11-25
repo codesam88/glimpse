@@ -20,6 +20,7 @@
   // review modes
   let reviewMode = null // null | 'highlight' | 'note'
   let statusMessage = ''
+  let linkError = null
   // sidebar
   let sidebarOpen = true
   let sidebarTab = 'outline'
@@ -465,9 +466,11 @@
       const t = await f.text()
       loadingFile = true
       text = t
+      currentPath = f.name
       lastHash = ''
       await loadText(t)
       loadingFile = false
+      dirty = false
     } catch (err) {
       error = String(err)
     } finally {
@@ -584,6 +587,148 @@
   }
   function cancelReviewMode() {
     reviewMode = null
+  }
+
+  function dirname(p) {
+    return String(p || '').replace(/[\\\\/][^\\\\/]*$/, '')
+  }
+  function normalizePath(p) {
+    const leading = String(p || '').startsWith('/') ? '/' : ''
+    const out = []
+    for (const part of String(p || '').split('/')) {
+      if (part === '' || part === '.') continue
+      if (part === '..') { out.pop(); continue }
+      out.push(part)
+    }
+    return leading + out.join('/')
+  }
+  function resolveLocalPath(href) {
+    const clean = String(href || '').split('#')[0].split('?')[0]
+    if (clean.startsWith('/')) return normalizePath(clean)
+    const base = currentPath ? dirname(currentPath) : ''
+    return normalizePath((base ? base + '/' : '') + clean)
+  }
+  function validateMarkdownSource(src) {
+    if (!src || !String(src).trim()) return false
+    const body = String(src).replace(/^---\\s*\\n[\\s\\S]*?\\n---\\s*\\n/, '')
+    if (!body.trim()) return false
+    try { md.parse(String(src), {}) } catch (e) { return false }
+    return true
+  }
+  async function openExternal(url) {
+    if (isTauri()) {
+      try {
+        const { openUrl } = await import('@tauri-apps/plugin-opener')
+        await openUrl(url)
+      } catch (e) { showStatus('Could not open link') }
+    } else {
+      window.open(url, '_blank', 'noopener,noreferrer')
+    }
+  }
+  async function handleLinkedDocument(resolved, src, renderOnly) {
+    let finalSrc = src
+    if (renderOnly) finalSrc = '```mermaid\\n' + src + '\\n```'
+    // mimic openPath but with provided text
+    conflict = null
+    ignoredDiskHash = null
+    loading = true
+    error = ''
+    try {
+      loadingFile = true
+      currentPath = resolved
+      text = finalSrc
+      lastHash = ''
+      await loadText(finalSrc)
+      loadingFile = false
+      dirty = false
+      lastSavedHash = null
+      await watchParent(resolved)
+    } catch (e) {
+      error = String(e)
+      html = ''
+      lastHash = ''
+    } finally {
+      loadingFile = false
+      loading = false
+    }
+  }
+  async function handlePreviewClick(e) {
+    const a = e.target && typeof e.target.closest === 'function' ? e.target.closest('a') : null
+    if (!a) return
+    const href = (a.getAttribute('href') || a.getAttribute('data-href') || '').trim()
+    if (!href) return
+    e.preventDefault()
+    e.stopPropagation()
+    linkError = null
+
+    if (href.startsWith('#')) {
+      const id = decodeURIComponent(href.slice(1))
+      const el = document.getElementById(id)
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        el.classList.add('heading-flash')
+        setTimeout(() => { try { el.classList.remove('heading-flash') } catch {} }, 1200)
+      } else {
+        showStatus('Heading not found: ' + href)
+      }
+      return
+    }
+
+    const schemeMatch = href.match(/^([a-z][a-z0-9+.-]*):/i)
+    const scheme = schemeMatch ? schemeMatch[1].toLowerCase() : ''
+    const allowedSchemes = ['http', 'https', 'mailto', 'tel', 'file']
+    if (scheme && !allowedSchemes.includes(scheme)) {
+      showStatus('Unsupported link: ' + scheme + ':')
+      return
+    }
+    if (scheme === 'http' || scheme === 'https' || scheme === 'mailto' || scheme === 'tel') {
+      await openExternal(href)
+      return
+    }
+
+    let localPath = href
+    if (scheme === 'file') localPath = decodeURIComponent(href.replace(/^file:\/\//i, ''))
+    localPath = localPath.split('#')[0].split('?')[0]
+    if (!localPath) return
+    const ext = (localPath.split('.').pop() || '').toLowerCase()
+    const docExts = ['md', 'markdown', 'mmd']
+    if (!docExts.includes(ext)) {
+      if (isTauri()) {
+        try {
+          const { openPath: openSysPath } = await import('@tauri-apps/plugin-opener')
+          await openSysPath(resolveLocalPath(localPath))
+        } catch (err) { showStatus('Could not open file') }
+      } else {
+        showStatus('external file — open locally')
+      }
+      return
+    }
+
+    const resolved = resolveLocalPath(localPath)
+    let src = ''
+    let readOk = false
+    try {
+      src = await readPath(resolved)
+      readOk = true
+    } catch (err) {
+      if (!isTauri()) {
+        try {
+          const r = await fetch(resolved)
+          if (!r.ok) throw new Error('not found')
+          src = await r.text()
+          readOk = true
+        } catch (e) { readOk = false }
+      }
+    }
+    if (!readOk) {
+      linkError = { path: resolved, message: 'Could not read file: ' + resolved }
+      return
+    }
+    if (!validateMarkdownSource(src)) {
+      linkError = { path: resolved, message: 'Could not parse document: ' + resolved }
+      return
+    }
+    await handleLinkedDocument(resolved, src, ext === 'mmd')
   }
 
   function lineOffset(lines, lineIndex) {
@@ -793,6 +938,13 @@
         const stored = localStorage.getItem('debug')
         debugEnabled = stored === 'true' || stored === '1'
       }
+      if (isTauri()) {
+        try {
+          const { invoke } = await import('@tauri-apps/api/core')
+          const dbg = await invoke('get_debug_flag')
+          if (dbg) { debugEnabled = true; try { localStorage.setItem('debug', 'true') } catch {} }
+        } catch (e) { /* ignore */ }
+      }
     } catch (e) { debugEnabled = false }
 
     // load keybinding overrides
@@ -835,6 +987,11 @@
         case 'review.noteMode': reviewMode = 'note'; break
         case 'debug.toggle':
           if (debugEnabled) { debugEnabled = !debugEnabled; persist('debug', debugEnabled) }
+          break
+        case 'debug.forceToggle':
+          debugEnabled = true
+          persist('debug', true)
+          try { localStorage.setItem('debug', 'true') } catch {}
           break
         case 'file.save': saveFile(); break
         case 'file.open':
@@ -995,19 +1152,10 @@
 <svelte:window on:keydown={onKeyDown} on:click={onGlobalClick} />
 
 <div class="toolbar" role="toolbar" aria-label="Main toolbar">
-  <button
-    class="sidebar-icon-btn"
-    on:click={toggleSidebar}
-    title={sidebarOpen ? 'Collapse Sidebar' : 'Expand Sidebar'}
-    aria-label={sidebarOpen ? 'Collapse Sidebar' : 'Expand Sidebar'}
-    data-testid="sidebar-toggle"
-  >{sidebarOpen ? '‹' : '›'}</button>
-
   <div class="toolbar-group file-group">
     <label class="file-label" title="Open a markdown file">
       Open .md <input type="file" accept=".md,.markdown,.txt" on:change={onFile} />
-    </label>
-    {#if isTauri()}
+    </label>    {#if isTauri()}
       <button on:click={() => openPath(currentPath || '', false)} disabled={!currentPath} title="Reload from disk">Reload</button>
       <button on:click={saveFile} disabled={!currentPath || !dirty} title="Save file">Save{dirty ? ' *' : ''}</button>
     {/if}
@@ -1074,6 +1222,13 @@
     {#if statusMessage}
       <span class="status">{statusMessage}</span>
     {/if}
+    <button
+      class="sidebar-icon-btn"
+      on:click={toggleSidebar}
+      title={sidebarOpen ? 'Collapse Sidebar' : 'Expand Sidebar'}
+      aria-label={sidebarOpen ? 'Collapse Sidebar' : 'Expand Sidebar'}
+      data-testid="sidebar-toggle"
+    >{sidebarOpen ? '›' : '‹'}</button>
   </div>
 </div>
 
@@ -1091,6 +1246,12 @@
     <button on:click={keepEditing}>Keep editing</button>
   </div>
 {/if}
+{#if linkError}
+  <div class="link-error-card" role="alert">
+    <span>{linkError.message}</span>
+    <button on:click={() => (linkError = null)}>Dismiss</button>
+  </div>
+{/if}
 
 <div class="split" class:preview-mode={viewMode === 'preview'} bind:this={splitEl} style="grid-template-columns: {viewMode === 'split' ? leftPct + '% 6px 1fr' : '1fr'};">
   <div class="pane editor-pane" bind:this={editorPaneEl}>
@@ -1106,7 +1267,7 @@
   </div>
   <div class="divider" on:mousedown={startResize}></div>
   <div class="pane preview-pane" bind:this={previewPaneEl}>
-    <div class="preview-scroll" class:hide-comments={hideComments} bind:this={previewEl} on:scroll={handlePreviewScroll} on:mouseup={onPreviewMouseUp} class:review-mode={!!reviewMode}>
+    <div class="preview-scroll" class:hide-comments={hideComments} bind:this={previewEl} on:scroll={handlePreviewScroll} on:mouseup={onPreviewMouseUp} on:click={handlePreviewClick} class:review-mode={!!reviewMode}>
       <article id="rendered" class="rendered">
         {@html html}
       </article>
@@ -1218,18 +1379,21 @@
   .split.preview-mode .editor-pane,
   .split.preview-mode .divider { display: none; }
   .conflict-banner { display: flex; gap: 0.5rem; align-items: center; padding: 0.5rem 0.75rem; margin-bottom: 0.5rem; background: #fff3cd; color: #664d03; border: 1px solid #ffecb5; border-radius: 4px; }
+  .link-error-card { display: flex; gap: 0.5rem; align-items: center; padding: 0.5rem 0.75rem; margin-bottom: 0.5rem; background: #f8d7da; color: #721c24; border: 1px solid #f5c2c7; border-radius: 4px; }
+  .link-error-card button { padding: 0.2rem 0.5rem; border: 1px solid #f5c2c7; border-radius: 4px; background: #fff; color: #721c24; cursor: pointer; }
+  :global(.heading-flash) { background: rgba(255, 235, 59, 0.45); transition: background 1.2s ease; }
   .toolbar button span.active { font-weight: 700; text-decoration: underline; }
   .pane { overflow: hidden; min-width: 0; min-height: 0; }
   .editor-pane { height: 100%; min-height: 0; display: flex; flex-direction: column; }
   .preview-pane { height: 100%; min-height: 0; display: flex; flex-direction: row; }
   .preview-scroll { height: 100%; overflow: auto; padding: 0 1rem; position: relative; flex: 1 1 auto; min-width: 0; min-height: 0; }
-  .sidebar { width: 280px; min-width: 280px; max-width: 280px; height: 100%; overflow: auto; border-left: 1px solid var(--app-border); background: var(--app-toolbar-bg); color: var(--app-fg); display: flex; flex-direction: column; }
+  .sidebar { width: 280px; min-width: 280px; max-width: 280px; height: 100%; overflow: hidden; border-left: 1px solid var(--app-border); background: var(--app-toolbar-bg); color: var(--app-fg); display: flex; flex-direction: column; }
   .sidebar-header { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; border-bottom: 1px solid var(--app-border); position: sticky; top: 0; background: var(--app-toolbar-bg); z-index: 5; }
   .sidebar-collapse { padding: 0.2rem 0.5rem; border: 1px solid var(--app-border); border-radius: 4px; background: var(--app-toolbar-bg); color: var(--app-fg); cursor: pointer; }
   .sidebar-tabs { display: flex; gap: 0.25rem; flex: 1; }
   .sidebar-tab { flex: 1; padding: 0.3rem 0.5rem; border: 1px solid var(--app-border); border-radius: 4px; background: var(--app-toolbar-bg); color: var(--app-fg); cursor: pointer; font-size: 0.8rem; }
   .sidebar-tab.active { font-weight: 700; background: var(--app-accent); color: #fff; border-color: var(--app-accent); }
-  .sidebar-body { padding: 0.5rem; flex: 1; overflow: auto; }
+  .sidebar-body { padding: 0.5rem; flex: 1; overflow: auto; min-height: 0; }
   .empty-state { color: var(--app-fg); opacity: 0.6; font-size: 0.85rem; }
   .outline-list { list-style: none; margin: 0; padding: 0; }
   .outline-item { margin: 0.15rem 0; }
