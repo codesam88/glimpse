@@ -7,6 +7,7 @@
   import { sanitizeHtml, renderDiagrams } from './lib/diagrams.js'
   import { THEMES, DEFAULT_THEME, applyTheme } from './lib/themes.js'
   import { transformCriticMarkup, wrapWithMarkers } from './lib/reviewTransforms.js'
+  import { DEFAULT_BINDINGS, getDefaults, findAction, mergeBindings } from './lib/keymap.js'
 
   let html = ''
   let theme = DEFAULT_THEME
@@ -24,6 +25,8 @@
   let debugEnabled = false
   let debugOpen = false
   let debugMenuEl = null
+  // keybindings
+  let bindings = mergeBindings(getDefaults(), {})
   let outlineItems = []
   let commentItems = []
   let activeHeadingLine = null
@@ -647,6 +650,82 @@
       }
     } catch (e) { debugEnabled = false }
 
+    // load keybinding overrides
+    try {
+      const stored = localStorage.getItem('keybindings')
+      if (stored) bindings = mergeBindings(getDefaults(), JSON.parse(stored))
+    } catch (e) { console.warn('keybindings load failed', e) }
+
+    // config surface (V1)
+    window.setKeybinding = (actionId, keys) => {
+      const next = { ...bindings }
+      next[actionId] = Array.isArray(keys) ? keys : (keys ? [keys] : [])
+      bindings = mergeBindings(getDefaults(), next)
+      try { localStorage.setItem('keybindings', JSON.stringify(bindings)) } catch {}
+      persist('keybindings', bindings)
+      return bindings
+    }
+    window.getKeybindings = () => bindings
+
+    const isEditable = (target) => {
+      if (!target) return false
+      const tag = (target.tagName || '').toUpperCase()
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
+      if (target.isContentEditable) return true
+      if (target.closest && target.closest('.cm-editor')) return true
+      return false
+    }
+
+    const runAction = (actionId) => {
+      switch (actionId) {
+        case 'zoom.in': zoomIn(); break
+        case 'zoom.out': zoomOut(); break
+        case 'zoom.reset': resetZoom(); break
+        case 'view.toggleSplit': toggleViewMode(); break
+        case 'sidebar.toggle': toggleSidebar(); break
+        case 'sidebar.tabOutline': setSidebarTab('outline'); break
+        case 'sidebar.tabComments': setSidebarTab('comments'); break
+        case 'comments.toggleVisibility': toggleComments(); break
+        case 'debug.toggle':
+          if (debugEnabled) { debugEnabled = !debugEnabled; persist('debug', debugEnabled) }
+          break
+        case 'file.save': saveFile(); break
+        case 'file.open':
+          {
+            const inp = document.querySelector('.file-label input')
+            if (inp) inp.click()
+          }
+          break
+        default: break
+      }
+    }
+
+    const handleGlobalKeyDown = (e) => {
+      const actionId = findAction(bindings, e)
+      if (!actionId) return
+      const hasMod = e.ctrlKey || e.altKey || e.metaKey || e.shiftKey
+      if (!hasMod && isEditable(e.target)) return
+      // always prevent default for bound combos to stop browser actions (print etc.)
+      e.preventDefault()
+      runAction(actionId)
+    }
+    const handleGlobalWheel = (e) => {
+      if (!e.ctrlKey) return
+      const actionId = findAction(bindings, e)
+      if (!actionId) return
+      e.preventDefault()
+      runAction(actionId)
+    }
+
+    window.addEventListener('keydown', handleGlobalKeyDown)
+    window.addEventListener('wheel', handleGlobalWheel, { passive: false })
+
+    // store cleanup refs
+    window.__mdv_cleanup_keybindings = () => {
+      window.removeEventListener('keydown', handleGlobalKeyDown)
+      window.removeEventListener('wheel', handleGlobalWheel)
+    }
+
     if (isTauri()) {
       try {
         const store = await getStore()
@@ -749,6 +828,7 @@
   }
 
   onDestroy(() => {
+    if (window.__mdv_cleanup_keybindings) { try { window.__mdv_cleanup_keybindings() } catch {} }
     if (unwatch) { try { unwatch() } catch {} }
     clearTimeout(debounceTimer)
     clearTimeout(previewDebounce)
