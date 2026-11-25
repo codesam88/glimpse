@@ -905,6 +905,29 @@
   }
   function zoomIn() { zoom = Math.min(3, +(zoom + 0.1).toFixed(2)); applyZoom(); persist('zoom', zoom) }
   function zoomOut() { zoom = Math.max(0.5, +(zoom - 0.1).toFixed(2)); applyZoom(); persist('zoom', zoom) }
+  // Ctrl+wheel: proportional, accumulated — a small flick must be a small step.
+  // ~1% zoom per 30px of deltaY (normalized across deltaMode); buttons keep 10% steps.
+  let zoomWheelAccum = 0
+  let zoomWheelPersistTimer = null
+  function wheelDeltaPx(e) {
+    const d = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * 100 : e.deltaY
+    return Math.max(-240, Math.min(240, d)) // clamp per-event spike (fast trackpads)
+  }
+  function handleCtrlWheelZoom(e) {
+    zoomWheelAccum += wheelDeltaPx(e)
+    let applied = false
+    while (Math.abs(zoomWheelAccum) >= 30) {
+      const step = (zoomWheelAccum > 0 ? -0.01 : 0.01) // wheel down = zoom out
+      zoom = Math.max(0.5, Math.min(3, +(zoom + step).toFixed(3)))
+      zoomWheelAccum -= zoomWheelAccum > 0 ? 30 : -30
+      applied = true
+    }
+    if (applied) {
+      applyZoom()
+      clearTimeout(zoomWheelPersistTimer)
+      zoomWheelPersistTimer = setTimeout(() => persist('zoom', zoom), 400)
+    }
+  }
   function resetZoom() { zoom = 1; applyZoom(); persist('zoom', zoom) }
 
   async function toggleDiagrams() {
@@ -1043,6 +1066,8 @@
       const actionId = findAction(bindings, e)
       if (!actionId) return
       e.preventDefault()
+      // zoom via wheel is proportional/accumulated; other wheel bindings step
+      if (actionId === 'zoom.in' || actionId === 'zoom.out') { handleCtrlWheelZoom(e); return }
       runAction(actionId)
     }
 
