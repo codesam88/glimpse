@@ -35,7 +35,7 @@ jobs:
             file xz-utils
 
       - name: Checkout
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install Node 22
         run: |
@@ -68,7 +68,7 @@ jobs:
             || true
 
       - name: Cache cargo
-        uses: actions/cache@v4.2.1
+        uses: actions/cache@0c907a75c2c80ebcb7f088228285e798b750cf8f # v4.2.1
         with:
           path: |
             ~/.cargo/registry
@@ -81,7 +81,7 @@ jobs:
             trixie-cargo-
 
       - name: Cache npm
-        uses: actions/cache@v4.2.1
+        uses: actions/cache@0c907a75c2c80ebcb7f088228285e798b750cf8f # v4.2.1
         with:
           path: ~/.npm
           key: trixie-npm-${{ hashFiles('web/package-lock.json') }}
@@ -123,7 +123,7 @@ jobs:
           cargo audit || true
 
       - name: Upload Trixie bundle
-        uses: actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: glimpse-${{ inputs.bundle }}
           path: ${{ inputs.bundle == 'appimage' && 'src-tauri/target/release/bundle/appimage/*.AppImage' || 'src-tauri/target/release/bundle/deb/*.deb' }}
