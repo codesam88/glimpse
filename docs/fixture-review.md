@@ -80,3 +80,28 @@ Malformed braces: {++a++} {--b--} {not a mark} and {>> stray <<
 ## Links with marks
 
 Link with mark: [{++added++}](https://example.invalid/x) (should not crash).
+
+## Obsidian %% comments (compat)
+
+Inline comment: Before %%secret inline note%% after.
+
+Block comment:
+
+%%%%
+This is a block comment.
+It should render as a muted span/div.
+%%%%
+
+Adjacent: text %%a%% %%b%% end.
+
+## HTML comments (must stay hidden)
+
+Before <!-- hidden html comment --> after.
+
+Block html comment:
+
+<!-- 
+hidden block
+-->
+
+After.

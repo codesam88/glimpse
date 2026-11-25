@@ -46,7 +46,7 @@ function diagramPlugin(md) {
 
 export function createMarkdown() {
   const md = new MarkdownIt({
-    html: false,
+    html: true,
     linkify: true,
     typographer: true,
     highlight(str, lang) {
@@ -111,6 +111,32 @@ export function createMarkdown() {
       return orig(state, silent)
     }
   }
+  // Obsidian %% comments: render as muted spans (inline %%...%% and block %%%%...%%%%).
+  const obsidianCommentMarkers = [
+    { open: '%%%%', close: '%%%%', block: true },
+    { open: '%%', close: '%%', block: false },
+  ]
+  md.inline.ruler.push('obsidian_comment', (state, silent) => {
+    const start = state.pos
+    let marker = null
+    for (const m of obsidianCommentMarkers) {
+      if (state.src.startsWith(m.open, start)) { marker = m; break }
+    }
+    if (!marker) return false
+    const closeIndex = state.src.indexOf(marker.close, start + marker.open.length)
+    if (closeIndex === -1) return false
+    if (silent) { state.pos = closeIndex + marker.close.length; return true }
+    const inner = state.src.slice(start + marker.open.length, closeIndex)
+    const cls = marker.block
+      ? 'obsidian-comment obsidian-comment-block'
+      : 'obsidian-comment'
+    const tag = 'span'
+    const token = state.push('html_inline', '', 0)
+    token.content = '<' + tag + ' class="' + cls + '">' + md.utils.escapeHtml(inner) + '</' + tag + '>'
+    state.pos = closeIndex + marker.close.length
+    return true
+  })
+
   md.use(sourceLinePlugin)
   md.use(diagramPlugin)
 

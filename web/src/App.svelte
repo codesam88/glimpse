@@ -6,6 +6,7 @@
   import { EditorView } from '@codemirror/view'
   import { sanitizeHtml, renderDiagrams } from './lib/diagrams.js'
   import { THEMES, DEFAULT_THEME, applyTheme } from './lib/themes.js'
+  import { transformCriticMarkup, wrapWithMarkers } from './lib/reviewTransforms.js'
 
   let html = ''
   let theme = DEFAULT_THEME
@@ -14,6 +15,7 @@
   let md
   let zoom = 1
   let diagramsEnabled = true
+  let hideComments = false
   let currentPath = ''
   let unwatch = null
   let debounceTimer = null
@@ -342,6 +344,54 @@
     finally { saving = false }
   }
 
+  async function applyTransformedText(newText) {
+    if (newText === text) return
+    loadingFile = true
+    text = newText
+    lastHash = ''
+    await loadText(newText)
+    loadingFile = false
+    dirty = true
+  }
+
+  function wrapSelection(kind) {
+    if (!editorView) return
+    const sel = editorView.state.selection.main
+    const selected = editorView.state.sliceDoc(sel.from, sel.to)
+    const replacement = wrapWithMarkers(selected, kind)
+    const placeholder = ({ addition: 'added', deletion: 'removed', highlight: 'highlighted', comment: 'comment' })[kind] || 'text'
+    editorView.dispatch({
+      changes: { from: sel.from, to: sel.to, insert: replacement },
+      selection: selected.length
+        ? { anchor: sel.from + replacement.length }
+        : { anchor: sel.from + (replacement.indexOf(placeholder) >= 0 ? replacement.indexOf(placeholder) : 0), head: sel.from + (replacement.indexOf(placeholder) >= 0 ? replacement.indexOf(placeholder) + placeholder.length : replacement.length) },
+    })
+  }
+
+  function acceptAll() { applyTransformedText(transformCriticMarkup(text, 'accept')) }
+  function rejectAll() { applyTransformedText(transformCriticMarkup(text, 'reject')) }
+  function acceptSelection() {
+    if (!editorView) return
+    const sel = editorView.state.selection.main
+    const selected = editorView.state.sliceDoc(sel.from, sel.to)
+    if (!selected) return
+    const transformed = transformCriticMarkup(selected, 'accept')
+    editorView.dispatch({ changes: { from: sel.from, to: sel.to, insert: transformed } })
+  }
+  function rejectSelection() {
+    if (!editorView) return
+    const sel = editorView.state.selection.main
+    const selected = editorView.state.sliceDoc(sel.from, sel.to)
+    if (!selected) return
+    const transformed = transformCriticMarkup(selected, 'reject')
+    editorView.dispatch({ changes: { from: sel.from, to: sel.to, insert: transformed } })
+  }
+
+  function toggleComments() {
+    hideComments = !hideComments
+    persist('hideComments', hideComments)
+  }
+
   function applyZoom() {
     document.documentElement.style.fontSize = (16 * zoom) + 'px'
   }
@@ -406,6 +456,8 @@
         const dg = await store.get('diagramsEnabled')
         if (dg !== null && dg !== undefined) diagramsEnabled = !!dg
         applyTheme(theme)
+        const hc = await store.get('hideComments')
+        if (hc !== null && hc !== undefined) hideComments = !!hc
         const pl = await store.get('paneLeft')
         if (pl !== null && pl !== undefined) leftPct = Number(pl) || 50
         applyZoom()
@@ -491,6 +543,19 @@
   <button on:click={zoomIn}>Zoom +</button>
   <button on:click={resetZoom}>Reset zoom</button>
   <button on:click={toggleDiagrams}>Diagrams: {diagramsEnabled ? 'on' : 'off'}</button>
+  <span class="group">
+    <button on:click={() => wrapSelection('addition')}>Wrap ++</button>
+    <button on:click={() => wrapSelection('deletion')}>Wrap --</button>
+    <button on:click={() => wrapSelection('highlight')}>Wrap ==</button>
+    <button on:click={() => wrapSelection('comment')}>Wrap &gt;&gt;</button>
+  </span>
+  <span class="group">
+    <button on:click={acceptAll}>Accept all</button>
+    <button on:click={rejectAll}>Reject all</button>
+    <button on:click={acceptSelection}>Accept sel</button>
+    <button on:click={rejectSelection}>Reject sel</button>
+  </span>
+  <button on:click={toggleComments}>Comments: {hideComments ? 'hidden' : 'muted'}</button>
   {#if currentPath}
     <span class="path">{currentPath}</span>
   {/if}
@@ -520,7 +585,7 @@
   </div>
   <div class="divider" on:mousedown={startResize}></div>
   <div class="pane preview-pane" bind:this={previewPaneEl} on:mouseenter={() => (activePane = 'preview')}>
-    <div class="preview-scroll" bind:this={previewEl} on:scroll={handlePreviewScroll}>
+    <div class="preview-scroll" class:hide-comments={hideComments} bind:this={previewEl} on:scroll={handlePreviewScroll}>
       <article id="rendered" class="rendered">
         {@html html}
       </article>
@@ -558,4 +623,8 @@
   /* CodeMirror fill */
   .editor-pane :global(.cm-editor) { height: 100%; }
   .editor-pane :global(.cm-scroller) { overflow: auto; }
+  .toolbar .group { display: inline-flex; gap: 0.25rem; }
+  .preview-scroll.hide-comments .rendered :global(.obsidian-comment) { display: none; }
+  .rendered :global(.obsidian-comment) { color: #6b6b6b; font-style: italic; background: rgba(128,128,128,0.15); border-radius: 3px; padding: 0 0.2em; }
+  .rendered :global(.obsidian-comment-block) { display: block; margin: 0.5em 0; padding: 0.5em; border-left: 3px solid #999; background: rgba(128,128,128,0.1); }
 </style>
