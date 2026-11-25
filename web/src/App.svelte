@@ -1154,7 +1154,14 @@
         case 'sidebar.tabComments': setSidebarTab('comments'); break
         case 'comments.toggleVisibility': toggleComments(); break
         case 'review.highlightMode': reviewMode = 'highlight'; break
-        case 'review.noteMode': reviewMode = 'note'; break
+        case 'review.noteMode':
+          reviewMode = 'note'
+          // force-open the sidebar on Comments so the destination is visible
+          // before the user clicks/marks text
+          sidebarOpen = true
+          setSidebarTab('comments')
+          persist('sidebarOpen', true)
+          break
         case 'review.deleteMode': reviewMode = 'delete'; break
         case 'debug.toggle':
           if (debugEnabled) { debugEnabled = !debugEnabled; persist('debug', debugEnabled) }
