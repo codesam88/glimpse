@@ -30,6 +30,10 @@ compromised OS user.
 
 ### Known accepted risks
 
+- **WebKitGTK virtual-memory footprint (~70 GB VIRT, ~255 MB RSS):**
+  WebKit reserves huge PROT_NONE/JIT/WASM guard mappings per process; VIRT
+  is not committed memory. Verified on a real install: RSS ~255 MB across
+  all processes. Do not treat VIRT growth as a leak signal — track RSS.
 - **RUSTSEC / GHSA-wrw7-89jp-8q8g (glib < 0.20, `VariantStrIter` unsoundness,
   medium):** transitive via Tauri's gtk-0.18 stack; the patch (glib 0.20)
   is semver-incompatible with gtk 0.18, so it lands only when Tauri bumps
