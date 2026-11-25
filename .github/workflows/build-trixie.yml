@@ -1,0 +1,130 @@
+name: Trixie bundle
+
+# Reusable single-bundle Trixie builder (called per bundle type from ci.yml).
+# V1 targets Debian Trixie (13) only; Ubuntu 24.04 rebuilds deferred post-V1.
+
+on:
+  workflow_call:
+    inputs:
+      bundle:
+        description: Tauri bundle target (deb or appimage)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Trixie ${{ inputs.bundle }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    container:
+      image: debian:trixie-slim
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      CARGO_TERM_COLOR: always
+      APPIMAGE_EXTRACT_AND_RUN: '1'
+      ARCH: x86_64
+    steps:
+      - name: Install base tooling
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates curl wget git build-essential pkg-config \
+            file xz-utils
+
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+
+      - name: Install Node 22
+        run: |
+          curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+          apt-get install -y --no-install-recommends nodejs
+          node --version
+          npm --version
+
+      - name: Install Rust stable
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          "$HOME/.cargo/bin/rustc" --version
+          "$HOME/.cargo/bin/cargo" --version
+
+      - name: Install Tauri system dependencies
+        run: |
+          apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            librsvg2-dev \
+            patchelf \
+            fuse libfuse2 \
+            libssl-dev \
+            libdbus-1-dev \
+            libxdo-dev
+          # AppIndicator package name varies by distro release; non-fatal.
+          apt-get install -y --no-install-recommends libayatana-appindicator3-dev \
+            || apt-get install -y --no-install-recommends libappindicator3-dev \
+            || true
+
+      - name: Cache cargo
+        uses: actions/cache@v4.2.1
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin
+            src-tauri/target
+          key: trixie-cargo-${{ inputs.bundle }}-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: |
+            trixie-cargo-${{ inputs.bundle }}-
+            trixie-cargo-
+
+      - name: Cache npm
+        uses: actions/cache@v4.2.1
+        with:
+          path: ~/.npm
+          key: trixie-npm-${{ hashFiles('web/package-lock.json') }}
+          restore-keys: |
+            trixie-npm-
+
+      - name: Install Tauri CLI
+        run: npm install -g @tauri-apps/cli@2
+
+      - name: Build web
+        working-directory: web
+        run: npm ci && npm run build
+
+      - name: Tauri build (${{ inputs.bundle }})
+        working-directory: src-tauri
+        shell: bash
+        run: |
+          source "$HOME/.cargo/env"
+          npx @tauri-apps/cli build --bundles ${{ inputs.bundle }}
+
+      - name: Record bundle artifacts
+        run: |
+          echo "### Trixie ${{ inputs.bundle }} bundles" >> "$GITHUB_STEP_SUMMARY"
+          find src-tauri/target/release/bundle -type f \( -name '*.deb' -o -name '*.AppImage' \) -printf '%f %s bytes\n' | tee -a "$GITHUB_STEP_SUMMARY"
+          sha256sum src-tauri/target/release/bundle/deb/*.deb src-tauri/target/release/bundle/appimage/*.AppImage 2>/dev/null || true
+
+      - name: cargo audit (non-blocking)
+        working-directory: src-tauri
+        shell: bash
+        continue-on-error: true
+        run: |
+          source "$HOME/.cargo/env"
+          if ! command -v cargo-audit >/dev/null 2>&1; then
+            cargo install cargo-audit --locked || exit 0
+          fi
+          cargo audit || true
+
+      - name: Upload Trixie bundle
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: glimpse-${{ inputs.bundle }}
+          path: |
+            src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
+          retention-days: 14
