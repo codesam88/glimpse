@@ -30,7 +30,8 @@
   let mdLang = null
   let extensions = []
 
-  // panes
+  // panes / view mode
+  let viewMode = 'preview'
   let leftPct = 50
   let splitEl = null
   let previewEl = null
@@ -38,6 +39,9 @@
   let previewPaneEl = null
   let resizing = false
 
+  // disk conflict guard
+  let conflict = null
+  let ignoredDiskHash = null
   // scroll sync
   let syncing = false
   let activePane = 'editor'
@@ -204,6 +208,11 @@
             const newHash = hashText(newText)
             if (lastSavedHash && newHash === lastSavedHash) { lastSavedHash = null; return }
             if (newHash === hashText(text)) return
+            if (dirty) {
+              if (ignoredDiskHash && newHash === ignoredDiskHash) return
+              conflict = { diskText: newText, diskHash: newHash }
+              return
+            }
             const prevScroll = previewEl ? previewEl.scrollTop : 0
             const prevEditorScroll = editorView ? editorView.scrollDOM.scrollTop : 0
             loadingFile = true
@@ -226,6 +235,8 @@
 
   async function openPath(path, preserveScroll = false) {
     if (!path) return
+    conflict = null
+    ignoredDiskHash = null
     loading = true
     error = ''
     const prevScroll = preserveScroll ? (previewEl ? previewEl.scrollTop : 0) : 0
@@ -392,6 +403,39 @@
     persist('hideComments', hideComments)
   }
 
+  async function toggleViewMode() {
+    viewMode = viewMode === 'preview' ? 'split' : 'preview'
+    persist('viewMode', viewMode)
+    if (viewMode === 'split') {
+      await tick()
+      requestAnimationFrame(() => {
+        if (editorView) {
+          try { editorView.requestMeasure() } catch (e) { console.warn(e) }
+        }
+      })
+    }
+  }
+
+  async function reloadFromDisk() {
+    if (!conflict) return
+    const newText = conflict.diskText
+    ignoredDiskHash = null
+    conflict = null
+    loadingFile = true
+    text = newText
+    lastHash = ''
+    await loadText(newText)
+    loadingFile = false
+    dirty = false
+    lastSavedHash = null
+  }
+
+  function keepEditing() {
+    if (!conflict) return
+    ignoredDiskHash = conflict.diskHash
+    conflict = null
+  }
+
   function applyZoom() {
     document.documentElement.style.fontSize = (16 * zoom) + 'px'
   }
@@ -460,6 +504,8 @@
         if (hc !== null && hc !== undefined) hideComments = !!hc
         const pl = await store.get('paneLeft')
         if (pl !== null && pl !== undefined) leftPct = Number(pl) || 50
+        const vm = await store.get('viewMode')
+        if (vm === 'preview' || vm === 'split') viewMode = vm
         applyZoom()
       } catch (e) { console.warn(e) }
 
@@ -491,6 +537,15 @@
         if (z) zoom = Number(JSON.parse(z)) || zoom
         const dg = localStorage.getItem('diagramsEnabled')
         if (dg) diagramsEnabled = !!JSON.parse(dg)
+        const vmb = localStorage.getItem('viewMode')
+        if (vmb) {
+          try {
+            const v = JSON.parse(vmb)
+            if (v === 'preview' || v === 'split') viewMode = v
+          } catch {
+            if (vmb === 'preview' || vmb === 'split') viewMode = vmb
+          }
+        }
       } catch (e) { console.warn(e) }
       applyTheme(theme)
       applyZoom()
@@ -543,6 +598,9 @@
   <button on:click={zoomIn}>Zoom +</button>
   <button on:click={resetZoom}>Reset zoom</button>
   <button on:click={toggleDiagrams}>Diagrams: {diagramsEnabled ? 'on' : 'off'}</button>
+  <button on:click={toggleViewMode} data-testid="view-mode-toggle" aria-label="Toggle view mode">
+    View: <span class:active={viewMode === 'preview'}>Preview</span> / <span class:active={viewMode === 'split'}>Split</span>
+  </button>
   <span class="group">
     <button on:click={() => wrapSelection('addition')}>Wrap ++</button>
     <button on:click={() => wrapSelection('deletion')}>Wrap --</button>
@@ -571,7 +629,15 @@
   <p class="status error">{error}</p>
 {/if}
 
-<div class="split" bind:this={splitEl} style="grid-template-columns: {leftPct}% 6px 1fr;">
+{#if conflict}
+  <div class="conflict-banner" role="alert">
+    <span>File changed on disk.</span>
+    <button on:click={reloadFromDisk}>Reload from disk</button>
+    <button on:click={keepEditing}>Keep editing</button>
+  </div>
+{/if}
+
+<div class="split" class:preview-mode={viewMode === 'preview'} bind:this={splitEl} style="grid-template-columns: {viewMode === 'split' ? leftPct + '% 6px 1fr' : '1fr'};">
   <div class="pane editor-pane" bind:this={editorPaneEl} on:mouseenter={() => (activePane = 'editor')}>
     <CodeMirror
       bind:value={text}
@@ -604,6 +670,10 @@
   .status.error { color: #b00020; opacity: 1; }
   .dirty { color: #b00020; font-size: 0.8rem; }
   .split { display: grid; height: calc(100vh - 80px); gap: 0; }
+  .split.preview-mode .editor-pane,
+  .split.preview-mode .divider { display: none; }
+  .conflict-banner { display: flex; gap: 0.5rem; align-items: center; padding: 0.5rem 0.75rem; margin-bottom: 0.5rem; background: #fff3cd; color: #664d03; border: 1px solid #ffecb5; border-radius: 4px; }
+  .toolbar button span.active { font-weight: 700; text-decoration: underline; }
   .pane { overflow: hidden; min-width: 0; }
   .editor-pane { height: 100%; }
   .preview-pane { height: 100%; }
