@@ -85,9 +85,23 @@ jobs:
 
   trixie-deb:
     name: Trixie deb
-    uses: ./.github/workflows/build-trixie.yml
+    uses: ./.github/workflows/build-deb.yml
     with:
       bundle: deb
+      image: debian:trixie-slim
+      distro-tag: trixie
+    permissions:
+      contents: read
+
+  ubuntu24-deb:
+    name: Ubuntu 24.04 deb
+    # Min-glibc build: runs on Ubuntu 24.04 AND newer dev hosts (26.04+);
+    # used for rolling install testing/debugging alongside the Trixie floor.
+    uses: ./.github/workflows/build-deb.yml
+    with:
+      bundle: deb
+      image: ubuntu:24.04
+      distro-tag: ubuntu24
     permissions:
       contents: read
 
@@ -95,8 +109,10 @@ jobs:
     name: Trixie appimage
     # The ~100MB AppImage only builds on tags/manual; .deb builds every push.
     if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
-    uses: ./.github/workflows/build-trixie.yml
+    uses: ./.github/workflows/build-deb.yml
     with:
       bundle: appimage
+      image: debian:trixie-slim
+      distro-tag: trixie
     permissions:
       contents: read

@@ -1,7 +1,8 @@
-name: Trixie bundle
+name: DEB bundle
 
-# Reusable single-bundle Trixie builder (called per bundle type from ci.yml).
-# V1 targets Debian Trixie (13) only; Ubuntu 24.04 rebuilds deferred post-V1.
+# Reusable single-bundle builder (called per distro/bundle from ci.yml).
+# Distro floor is set by the container image: binaries run on that distro
+# and newer (glibc forward-compat), NOT older.
 
 on:
   workflow_call:
@@ -10,17 +11,25 @@ on:
         description: Tauri bundle target (deb or appimage)
         required: true
         type: string
+      image:
+        description: Container image (sets the distro/glibc floor)
+        required: true
+        type: string
+      distro-tag:
+        description: Short distro label for names (e.g. trixie, ubuntu24)
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 jobs:
   build:
-    name: Trixie ${{ inputs.bundle }}
+    name: ${{ inputs.distro-tag }} ${{ inputs.bundle }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     container:
-      image: debian:trixie-slim
+      image: ${{ inputs.image }}
     env:
       DEBIAN_FRONTEND: noninteractive
       CARGO_TERM_COLOR: always
@@ -75,18 +84,18 @@ jobs:
             ~/.cargo/git
             ~/.cargo/bin
             src-tauri/target
-          key: trixie-cargo-${{ inputs.bundle }}-${{ hashFiles('src-tauri/Cargo.lock') }}
+          key: ${{ inputs.distro-tag }}-cargo-${{ inputs.bundle }}-${{ hashFiles('src-tauri/Cargo.lock') }}
           restore-keys: |
-            trixie-cargo-${{ inputs.bundle }}-
-            trixie-cargo-
+            ${{ inputs.distro-tag }}-cargo-${{ inputs.bundle }}-
+            ${{ inputs.distro-tag }}-cargo-
 
       - name: Cache npm
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.npm
-          key: trixie-npm-${{ hashFiles('web/package-lock.json') }}
+          key: ${{ inputs.distro-tag }}-npm-${{ hashFiles('web/package-lock.json') }}
           restore-keys: |
-            trixie-npm-
+            ${{ inputs.distro-tag }}-npm-
 
       - name: Install Tauri CLI
         run: npm install -g @tauri-apps/cli@2
@@ -107,7 +116,7 @@ jobs:
 
       - name: Record bundle artifacts
         run: |
-          echo "### Trixie ${{ inputs.bundle }} bundles" >> "$GITHUB_STEP_SUMMARY"
+          echo "### ${{ inputs.distro-tag }} ${{ inputs.bundle }} bundles" >> "$GITHUB_STEP_SUMMARY"
           find src-tauri/target/release/bundle -type f \( -name '*.deb' -o -name '*.AppImage' \) -printf '%f %s bytes\n' | tee -a "$GITHUB_STEP_SUMMARY"
           sha256sum src-tauri/target/release/bundle/deb/*.deb src-tauri/target/release/bundle/appimage/*.AppImage 2>/dev/null || true
 
@@ -132,10 +141,10 @@ jobs:
           fi
           cargo audit || true
 
-      - name: Upload Trixie bundle
+      - name: Upload bundle (${{ inputs.distro-tag }})
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: glimpse-${{ inputs.bundle }}
+          name: glimpse-${{ inputs.distro-tag }}-${{ inputs.bundle }}
           path: ${{ inputs.bundle == 'appimage' && 'src-tauri/target/release/bundle/appimage/*.AppImage' || 'src-tauri/target/release/bundle/deb/*.deb' }}
           if-no-files-found: error
           retention-days: 14

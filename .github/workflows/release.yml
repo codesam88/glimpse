@@ -1,7 +1,7 @@
 name: Release
 
-# On version tags: build both Trixie bundles, produce checksums, publish a
-# GitHub Release with .deb + .AppImage + sha256sums.txt attached.
+# On version tags: build Trixie (floor) + Ubuntu 24.04 (min-glibc) bundles,
+# produce checksums, publish a GitHub Release with all artifacts attached.
 
 on:
   push:
@@ -13,23 +13,37 @@ permissions:
 jobs:
   deb:
     name: Trixie deb
-    uses: ./.github/workflows/build-trixie.yml
+    uses: ./.github/workflows/build-deb.yml
     with:
       bundle: deb
+      image: debian:trixie-slim
+      distro-tag: trixie
+    permissions:
+      contents: read
+
+  ubuntu24-deb:
+    name: Ubuntu 24.04 deb
+    uses: ./.github/workflows/build-deb.yml
+    with:
+      bundle: deb
+      image: ubuntu:24.04
+      distro-tag: ubuntu24
     permissions:
       contents: read
 
   appimage:
     name: Trixie appimage
-    uses: ./.github/workflows/build-trixie.yml
+    uses: ./.github/workflows/build-deb.yml
     with:
       bundle: appimage
+      image: debian:trixie-slim
+      distro-tag: trixie
     permissions:
       contents: read
 
   release:
     name: Publish release
-    needs: [deb, appimage]
+    needs: [deb, ubuntu24-deb, appimage]
     runs-on: ubuntu-latest
     steps:
       - name: Download bundles
@@ -37,17 +51,25 @@ jobs:
         with:
           path: dist
           pattern: glimpse-*
-          merge-multiple: true
+
+      - name: Rename debs per distro (same filename from both builds)
+        shell: bash
+        run: |
+          mkdir -p out
+          ls -la dist/*/
+          [ -d dist/glimpse-trixie-deb ] && mv dist/glimpse-trixie-deb/*.deb "out/glimpse-${GITHUB_REF_NAME}-trixie_amd64.deb"
+          [ -d dist/glimpse-ubuntu24-deb ] && mv dist/glimpse-ubuntu24-deb/*.deb "out/glimpse-${GITHUB_REF_NAME}-ubuntu24.04_amd64.deb"
+          [ -d dist/glimpse-trixie-appimage ] && mv dist/glimpse-trixie-appimage/*.AppImage "out/glimpse-${GITHUB_REF_NAME}-trixie_amd64.AppImage"
+          ls -la out/
 
       - name: Checksums
-        working-directory: dist
+        working-directory: out
         run: |
-          ls -la
           sha256sum -- ./*.deb ./*.AppImage > sha256sums.txt
           cat sha256sums.txt
 
       - name: Publish GitHub Release
-        working-directory: dist
+        working-directory: out
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -55,6 +77,6 @@ jobs:
         run: |
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
             --title "Glimpse $TAG" \
-            --notes "Trixie (Debian 13) builds. See sha256sums.txt for integrity." \
+            --notes "Trixie (Debian 13) floor + Ubuntu 24.04 min-glibc build. See sha256sums.txt for integrity." \
             --verify-tag 2>/dev/null || gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber ./*.deb ./*.AppImage sha256sums.txt
           gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber ./*.deb ./*.AppImage sha256sums.txt
