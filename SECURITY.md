@@ -28,8 +28,15 @@ compromised OS user.
 | Diagram cache | keyed by (lang, theme, source hash) | prevents stale-SVG theme bugs |
 | Edit/save | only via explicit user action (Save / Ctrl+S); disk-conflict banner guards watcher clobber | write access is narrow by design |
 
-### Known accepted tradeoffs
+### Known accepted risks
 
+- **RUSTSEC / GHSA-wrw7-89jp-8q8g (glib < 0.20, `VariantStrIter` unsoundness,
+  medium):** transitive via Tauri's gtk-0.18 stack; the patch (glib 0.20)
+  is semver-incompatible with gtk 0.18, so it lands only when Tauri bumps
+  the gtk-rs stack (tracked: Tauri 2.12.7 is latest stable, still gtk 0.18).
+  Glimpse never calls `VariantStrIter`; the unsound iterator is not reachable
+  from attacker-controlled markdown content. Accepted until upstream ships
+  the fix — Dependabot will raise the cargo bump automatically.
 - `unsafe-eval` in CSP while wavedrom is a bundled renderer.
 - Widest-practical fs scope (above) — a compromised webview could read/write
   user files within those scopes. Mitigated by strict sanitization upstream.
