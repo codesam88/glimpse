@@ -22,7 +22,9 @@ fn get_debug_flag() -> bool {
     std::env::args().skip(1).any(|a| {
         a == "--debug"
             || a == "--debug=1"
-            || a.strip_prefix("--debug=").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false)
+            || a.strip_prefix("--debug=")
+                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                .unwrap_or(false)
     })
 }
 

@@ -7,7 +7,7 @@
   import { sanitizeHtml, renderDiagrams } from './lib/diagrams.js'
   import { THEMES, DEFAULT_THEME, applyTheme } from './lib/themes.js'
   import { transformCriticMarkup, wrapWithMarkers } from './lib/reviewTransforms.js'
-  import { DEFAULT_BINDINGS, getDefaults, findAction, mergeBindings } from './lib/keymap.js'
+  import { getDefaults, findAction, mergeBindings } from './lib/keymap.js'
 
   let html = ''
   let theme = DEFAULT_THEME
@@ -61,7 +61,6 @@
   let previewEl = null
   let editorPaneEl = null
   let previewPaneEl = null
-  let resizing = false
 
   // disk conflict guard
   let conflict = null
@@ -71,7 +70,6 @@
   let editorRafId = null
   let previewRafId = null
   let editorScrollListenerAttached = false
-  let rafId = null
   let previewDebounce = null
 
   // save echo suppression
@@ -944,7 +942,6 @@
   }
 
   function startResize(e) {
-    resizing = true
     const startX = e.clientX
     const startPct = leftPct
     const containerWidth = splitEl ? splitEl.getBoundingClientRect().width : window.innerWidth
@@ -954,7 +951,6 @@
       leftPct = Math.min(85, Math.max(15, newPct))
     }
     function onUp() {
-      resizing = false
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
       persist('paneLeft', leftPct)

@@ -153,7 +153,7 @@ export function createMarkdown() {
   md.use(texmath, { engine: katex, delimiters: 'dollars' })
   try {
     md.linkify.add('file:', {
-      validate: (text, pos, self) => {
+      validate: (text, pos, _self) => {
         if (!text.slice(pos).startsWith('///')) return 0
         const m = text.slice(pos).match(/^\/\/\/\S+/)
         return m ? m[0].length : 0

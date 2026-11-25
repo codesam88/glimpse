@@ -104,6 +104,21 @@ jobs:
         working-directory: web
         run: npm ci && npm run build
 
+      - name: Lint (eslint + svelte-check, blocking)
+        working-directory: web
+        run: |
+          npm run lint
+          npm run check
+
+      - name: Workflow lint (actionlint + shellcheck)
+        working-directory: ${{ github.workspace }}
+        run: |
+          curl -sSfL https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz | tar xz -C /tmp actionlint
+          /tmp/actionlint -version | head -n 1
+          /tmp/actionlint
+          shellcheck --version | head -n 2
+          find .github/workflows -name '*.yml' -print0 | xargs -0 /tmp/actionlint
+
       - name: Clean stale bundles (target/ is cache-restored)
         run: rm -rf src-tauri/target/release/bundle
 
@@ -119,6 +134,15 @@ jobs:
           echo "### ${{ inputs.distro-tag }} ${{ inputs.bundle }} bundles" >> "$GITHUB_STEP_SUMMARY"
           find src-tauri/target/release/bundle -type f \( -name '*.deb' -o -name '*.AppImage' \) -printf '%f %s bytes\n' | tee -a "$GITHUB_STEP_SUMMARY"
           sha256sum src-tauri/target/release/bundle/deb/*.deb src-tauri/target/release/bundle/appimage/*.AppImage 2>/dev/null || true
+
+      - name: Rust lint (fmt + clippy, blocking)
+        working-directory: src-tauri
+        shell: bash
+        run: |
+          source "$HOME/.cargo/env"
+          rustup component add rustfmt clippy
+          cargo fmt --check
+          cargo clippy -- -D warnings
 
       - name: cargo deny (licenses + bans + sources, blocking)
         working-directory: src-tauri
