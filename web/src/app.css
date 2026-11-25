@@ -1,3 +1,19 @@
+:root {
+  --app-bg: #ffffff;
+  --app-fg: #1f2328;
+  --app-toolbar-bg: #f6f8fa;
+  --app-border: #d0d7de;
+  --app-accent: #0969da;
+  --md-bg: #ffffff;
+  --md-fg: #1f2328;
+  --link-color: #0969da;
+  --code-bg: #f6f8fa;
+  --code-fg: #1f2328;
+  --table-border: #d0d7de;
+  --table-header-bg: #f6f8fa;
+  --table-zebra-bg: #f6f8fa;
+}
 :root { font-family: system-ui, -apple-system, sans-serif; }
-body { margin: 0; padding: 1rem; }
+body { margin: 0; padding: 1rem; background: var(--app-bg); color: var(--app-fg); }
 * { box-sizing: border-box; }
+a { color: var(--link-color); }

@@ -6,7 +6,6 @@ import texmath from 'markdown-it-texmath'
 import katex from 'katex'
 import hljs from 'highlight.js'
 
-import 'highlight.js/styles/github.css'
 import 'katex/dist/katex.min.css'
 
 const DIAGRAM_LANGS = new Set([

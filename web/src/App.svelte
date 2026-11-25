@@ -2,9 +2,10 @@
   import { onMount, onDestroy, tick } from 'svelte'
   import { createMarkdown } from './lib/markdown.js'
   import { sanitizeHtml, renderDiagrams } from './lib/diagrams.js'
+  import { THEMES, DEFAULT_THEME, applyTheme } from './lib/themes.js'
 
   let html = ''
-  let dark = false
+  let theme = DEFAULT_THEME
   let loading = true
   let error = ''
   let md
@@ -26,12 +27,15 @@
   }
 
   async function persist(key, value) {
-    if (!isTauri()) return
-    try {
-      const store = await getStore()
-      await store.set(key, value)
-      await store.save()
-    } catch (e) { console.warn('persist failed', e) }
+    if (isTauri()) {
+      try {
+        const store = await getStore()
+        await store.set(key, value)
+        await store.save()
+      } catch (e) { console.warn('persist failed', e) }
+      return
+    }
+    try { localStorage.setItem(key, JSON.stringify(value)) } catch (e) { console.warn('persist failed', e) }
   }
 
   function hashText(s) {
@@ -136,9 +140,10 @@
     }
   }
 
-  async function toggleDark() {
-    dark = !dark
-    document.documentElement.classList.toggle('dark', dark)
+  async function setTheme(next) {
+    theme = next
+    applyTheme(theme)
+    persist('theme', theme)
     const root = document.querySelector('#rendered')
     if (root) {
       root.querySelectorAll('.diagram-placeholder').forEach((ph) => {
@@ -147,7 +152,6 @@
       })
       if (diagramsEnabled) await renderDiagrams(root)
     }
-    persist('dark', dark)
   }
 
   function applyZoom() {
@@ -175,13 +179,17 @@
     if (isTauri()) {
       try {
         const store = await getStore()
-        const d = await store.get('dark')
-        if (d !== null && d !== undefined) dark = !!d
+        const t = await store.get('theme')
+        if (t !== null && t !== undefined) theme = String(t)
+        else {
+          const d = await store.get('dark')
+          if (d !== null && d !== undefined) theme = d ? 'github-dark' : 'github-light'
+        }
         const z = await store.get('zoom')
         if (z !== null && z !== undefined) zoom = Number(z) || 1
         const dg = await store.get('diagramsEnabled')
         if (dg !== null && dg !== undefined) diagramsEnabled = !!dg
-        document.documentElement.classList.toggle('dark', dark)
+        applyTheme(theme)
         applyZoom()
       } catch (e) { console.warn(e) }
 
@@ -206,6 +214,19 @@
       })
     }
 
+    if (!isTauri()) {
+      try {
+        const t = localStorage.getItem('theme')
+        if (t) { try { theme = JSON.parse(t) } catch { theme = t.replace(/^"|"$/g, '') } }
+        const z = localStorage.getItem('zoom')
+        if (z) zoom = Number(JSON.parse(z)) || zoom
+        const dg = localStorage.getItem('diagramsEnabled')
+        if (dg) diagramsEnabled = !!JSON.parse(dg)
+      } catch (e) { console.warn(e) }
+      applyTheme(theme)
+      applyZoom()
+    }
+
     await loadFixture()
     loading = false
   })
@@ -224,7 +245,11 @@
   {#if isTauri()}
     <button on:click={() => openPath(currentPath || '', false)} disabled={!currentPath}>Reload</button>
   {/if}
-  <button on:click={toggleDark}>{dark ? 'Light' : 'Dark'}</button>
+  <select class="theme-picker" value={theme} on:change={(e) => setTheme(e.currentTarget.value)} aria-label="Theme">
+    {#each THEMES as t (t.id)}
+      <option value={t.id}>{t.label}</option>
+    {/each}
+  </select>
   <button on:click={zoomOut}>Zoom -</button>
   <span class="zoom">{Math.round(zoom * 100)}%</span>
   <button on:click={zoomIn}>Zoom +</button>
@@ -248,28 +273,22 @@
 
 <style>
   .toolbar { display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; align-items: center; }
-  .toolbar button, .file-label { padding: 0.4rem 0.8rem; border: 1px solid #ccc; border-radius: 4px; background: #f7f7f7; cursor: pointer; }
+  .toolbar button, .file-label, .theme-picker { padding: 0.4rem 0.8rem; border: 1px solid var(--app-border); border-radius: 4px; background: var(--app-toolbar-bg); color: var(--app-fg); cursor: pointer; }
   .file-label input { display: none; }
-  .status { color: #666; }
-  .status.error { color: #b00020; }
-  .rendered { line-height: 1.6; }
+  .status { color: var(--app-fg); opacity: 0.7; }
+  .status.error { color: #b00020; opacity: 1; }
+  .rendered { line-height: 1.6; color: var(--md-fg); background: var(--md-bg); }
   .rendered :global(h1), .rendered :global(h2), .rendered :global(h3) { margin-top: 1.2em; }
-  .rendered :global(pre) { background: #f6f8fa; padding: 1rem; overflow: auto; border-radius: 6px; }
+  .rendered :global(pre) { background: var(--code-bg); color: var(--code-fg); padding: 1rem; overflow: auto; border-radius: 6px; }
   .rendered :global(code) { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
   .rendered :global(.diagram-placeholder) { margin: 1rem 0; min-height: 2rem; }
   .rendered :global(table) { border-collapse: collapse; margin: 1rem 0; width: auto; }
-  .rendered :global(th), .rendered :global(td) { border: 1px solid #d0d7de; padding: 6px 13px; }
-  .rendered :global(th) { background: #f6f8fa; font-weight: 600; }
-  .rendered :global(tbody tr:nth-child(even)) { background: #f6f8fa; }
+  .rendered :global(th), .rendered :global(td) { border: 1px solid var(--table-border); padding: 6px 13px; }
+  .rendered :global(th) { background: var(--table-header-bg); font-weight: 600; }
+  .rendered :global(tbody tr:nth-child(even)) { background: var(--table-zebra-bg); }
   .rendered :global(th), .rendered :global(td) { text-align: inherit; }
   .rendered :global(.diagram-error) { color: #b00020; border: 1px solid #b00020; padding: 0.5rem; border-radius: 4px; }
   .rendered :global(.ditaa-banner) { background: #fff3cd; color: #664d03; border: 1px solid #ffecb5; padding: 0.5rem; border-radius: 4px; margin-top: 0.5rem; }
-  :global(html.dark) { background: #1e1e1e; color: #ddd; }
-  :global(html.dark .rendered pre) { background: #2d2d2d; color: #ddd; }
-  :global(html.dark .rendered table) { color: #ddd; }
-  :global(html.dark .rendered th), :global(html.dark .rendered td) { border-color: #30363d; }
-  :global(html.dark .rendered th) { background: #161b22; }
-  :global(html.dark .rendered tbody tr:nth-child(even)) { background: #161b22; }
-  .path { font-size: 0.8rem; color: #666; max-width: 40ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .path { font-size: 0.8rem; color: var(--app-fg); opacity: 0.7; max-width: 40ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .zoom { font-size: 0.85rem; }
 </style>
