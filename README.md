@@ -15,10 +15,8 @@ Java/server), [@viz-js/viz](https://github.com/mdaines/viz-js) (Graphviz),
 [wavedrom](https://wavedrom.com), [nomnoml](https://nomnoml.com).
 
 Design inspiration: [Markdown Preview Enhanced](https://github.com/shd101wyy/markdown-preview-enhanced),
-[Kroki](https://kroki.io). Glimpse is [MIT](LICENSE); bundled deps are
-permissive/dual-licensed — checked in CI by
-[license-checker](https://github.com/davglass/license-checker) (npm) and
-[cargo-deny](https://github.com/EmbarkStudios/cargo-deny) (Rust).
+[Kroki](https://kroki.io). Glimpse is [MIT](LICENSE); all bundled
+dependencies are permissive or dual-licensed.
 
 
 
