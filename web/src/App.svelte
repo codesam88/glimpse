@@ -7,6 +7,7 @@
   import { sanitizeHtml, renderDiagrams } from './lib/diagrams.js'
   import { THEMES, DEFAULT_THEME, applyTheme } from './lib/themes.js'
   import { transformCriticMarkup, wrapWithMarkers } from './lib/reviewTransforms.js'
+  import { replaceOuterContent, removeOuter, insertReplyInside } from './lib/comments.js'
   import { getDefaults, findAction, mergeBindings } from './lib/keymap.js'
 
   let html = ''
@@ -22,6 +23,8 @@
   let statusMessage = ''
   let linkError = null
   let fullscreenDiagramHtml = null
+  let settingsOpen = false
+  let settings = { autosave: true, autoReload: true, autosaveInterval: 2000 }
   // sidebar
   let sidebarOpen = true
   let sidebarTab = 'outline'
@@ -39,6 +42,7 @@
   let editingCommentId = null
   let editingCommentText = ''
   let editingCommentAuthor = ''
+  let contextMenu = null
   let activeCommentId = null
   let currentPath = ''
   let unwatch = null
@@ -65,6 +69,7 @@
   // disk conflict guard
   let conflict = null
   let ignoredDiskHash = null
+  let externalChange = null
   // scroll sync
   let syncUntil = 0
   let editorRafId = null
@@ -139,6 +144,7 @@
     if (loadingFile) return
     text = value
     dirty = true
+    scheduleAutosave()
     schedulePreview(value)
   }
 
@@ -360,6 +366,10 @@
               conflict = { diskText: newText, diskHash: newHash }
               return
             }
+            if (!settings.autoReload) {
+              externalChange = { diskText: newText, diskHash: newHash }
+              return
+            }
             const prevScroll = previewEl ? previewEl.scrollTop : 0
             const prevEditorScroll = editorView ? editorView.scrollDOM.scrollTop : 0
             loadingFile = true
@@ -512,6 +522,7 @@
     await loadText(newText)
     loadingFile = false
     dirty = true
+    scheduleAutosave()
   }
 
   function wrapSelection(kind) {
@@ -561,28 +572,67 @@
     editingCommentAuthor = item.author || ''
     editingCommentText = item.text || ''
   }
+  function openContextMenu(e, item) {
+    e.preventDefault()
+    contextMenu = { x: e.clientX, y: e.clientY, item }
+  }
+  function closeContextMenu() {
+    contextMenu = null
+  }
   function cancelEditComment() {
     editingCommentId = null
     editingCommentText = ''
     editingCommentAuthor = ''
   }
-  function saveEditComment(item) {
+  function criticIndexFor(item) {
+    const idx = commentItems.findIndex((c) => c.id === item.id)
+    let ci = 0
+    for (let i = 0; i <= idx && i < commentItems.length; i++) {
+      if (commentItems[i].kind === 'critic' || commentItems[i].kind === 'obsidian') ci++
+    }
+    return Math.max(0, ci - 1)
+  }
+  async function saveEditComment(item) {
     const newInner = editingCommentAuthor ? ('@' + editingCommentAuthor + ': ' + editingCommentText).trim() : editingCommentText.trim()
-    // replace nth critic comment occurrence in source (occurrence index counted
-    // among critic-kind items only — obsidian/HTML cards are read-only in V1)
-    const criticItems = commentItems.filter((c) => c.kind === 'critic')
-    const pos = criticItems.findIndex((c) => c.id === item.id)
-    if (pos === -1) { showStatus('only {>>..<<} comments are editable'); cancelEditComment(); return }
-    const occ = pos
-    let count = 0
-    const newText = text.replace(/\{>>([\s\S]*?)<<\}/g, (m) => {
-      if (count++ !== occ) return m
-      return '{>> ' + newInner + ' <<}'
-    })
+    const ci = criticIndexFor(item)
+    const newText = replaceOuterContent(text, ci, newInner)
     if (newText !== text) {
-      applyTransformedText(newText)
+      await applyTransformedText(newText)
     }
     cancelEditComment()
+  }
+  async function deleteComment(item) {
+    const ci = criticIndexFor(item)
+    const newText = removeOuter(text, ci)
+    if (newText !== text) {
+      await applyTransformedText(newText)
+      showStatus('comment deleted')
+    }
+  }
+  async function replyComment(item) {
+    const ci = criticIndexFor(item)
+    const beforeIds = new Set(commentItems.map((c) => c.id))
+    const newText = insertReplyInside(text, ci, '{>> <<}')
+    if (newText !== text) {
+      await applyTransformedText(newText)
+      await tick()
+      const newItem = commentItems.find((c) => !beforeIds.has(c.id)) ||
+        commentItems.filter((c) => c.line >= item.line).pop()
+      if (newItem) {
+        sidebarOpen = true
+        setSidebarTab('comments')
+        persist('sidebarOpen', true)
+        await tick()
+        startEditComment(newItem)
+        await tick()
+        const ta = document.querySelector('.comment-text-input')
+        if (ta) { ta.focus(); try { ta.selectionStart = ta.selectionEnd = ta.value.length } catch {} }
+      } else {
+        sidebarOpen = true
+        setSidebarTab('comments')
+        persist('sidebarOpen', true)
+      }
+    }
   }
   function cancelReviewMode() {
     reviewMode = null
@@ -880,6 +930,17 @@
     statusTimer = setTimeout(() => { statusMessage = '' }, 2500)
   }
   let statusTimer = null
+  let autosaveTimer = null
+  function scheduleAutosave() {
+    if (autosaveTimer) return
+    autosaveTimer = setTimeout(async () => {
+      autosaveTimer = null
+      if (!settings.autosave || !dirty || !currentPath || conflict || externalChange) return
+      await saveFile()
+    }, settings.autosaveInterval || 2000)
+  }
+
+  $: if (!dirty && autosaveTimer) { clearTimeout(autosaveTimer); autosaveTimer = null }
 
   function toggleSidebar() {
     sidebarOpen = !sidebarOpen
@@ -888,6 +949,10 @@
   function closeDebugMenu() {
     if (debugMenuEl) debugMenuEl.open = false
     debugOpen = false
+  }
+  function persistSettings() {
+    try { localStorage.setItem('settings', JSON.stringify(settings)) } catch {}
+    persist('settings', settings)
   }
 
   function setSidebarTab(tab) {
@@ -1018,6 +1083,14 @@
           if (dbg) { debugEnabled = true; try { localStorage.setItem('debug', 'true') } catch {} }
         } catch (e) { /* ignore */ }
       }
+      // load settings
+      try {
+        const raw = localStorage.getItem('settings')
+        if (raw) {
+          const p = JSON.parse(raw)
+          settings = { autosave: p.autosave !== false, autoReload: p.autoReload !== false, autosaveInterval: Number(p.autosaveInterval) || 2000 }
+        }
+      } catch (e) {}
     } catch (e) { debugEnabled = false }
 
     // load keybinding overrides
@@ -1207,6 +1280,12 @@
     if (e.key === 'Escape' && fullscreenDiagramHtml) {
       closeDiagramFullscreen()
     }
+    if (e.key === 'Escape' && contextMenu) {
+      closeContextMenu()
+    }
+    if (e.key === 'Escape' && settingsOpen) {
+      settingsOpen = false
+    }
   }
   function onGlobalClick(e) {
     if (!debugOpen || !debugMenuEl) return
@@ -1287,6 +1366,7 @@
   {/if}
 
   <div class="toolbar-end">
+    <button class="settings-btn" data-testid="settings-toggle" on:click={() => (settingsOpen = true)} title="Settings">⚙</button>
     <div class="zoom-stepper" role="group" aria-label="Zoom">
       <button on:click={zoomOut} disabled={zoom <= 0.5} title="Zoom out">−</button>
       <button class="zoom-pct" on:click={resetZoom} title="Reset zoom to 100%">{Math.round(zoom * 100)}%</button>
@@ -1329,6 +1409,12 @@
   <div class="link-error-card" role="alert">
     <span>{linkError.message}</span>
     <button on:click={() => (linkError = null)}>Dismiss</button>
+  </div>
+{/if}
+{#if externalChange}
+  <div class="conflict-banner" role="status">
+    <span>File changed on disk.</span>
+    <button on:click={() => { const t = externalChange.diskText; externalChange = null; loadingFile = true; text = t; lastHash = ''; loadText(t).then(() => { loadingFile = false; dirty = false }) }}>Reload</button>
   </div>
 {/if}
 
@@ -1410,11 +1496,16 @@
                     tabindex="0"
                     on:click={() => scrollToComment(c)}
                     on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') scrollToComment(c) }}
+                    on:contextmenu|preventDefault={(e) => openContextMenu(e, c)}
                   >
                     {#if c.author}<div class="comment-author">@{c.author}</div>{/if}
                     <div class="comment-excerpt">{c.text || '(empty)'}</div>
                     <div class="comment-meta">Line {c.line + 1} · {c.kind}</div>
-                    {#if c.kind === 'critic'}<button class="comment-edit-btn" data-testid="comment-edit" on:click|stopPropagation={() => startEditComment(c)}>Edit</button>{/if}
+                    {#if c.kind === 'critic'}
+                      <button class="comment-edit-btn" data-testid="comment-edit" on:click|stopPropagation={() => startEditComment(c)}>Edit</button>
+                      <button class="comment-edit-btn" data-testid="comment-reply" on:click|stopPropagation={() => replyComment(c)}>↩</button>
+                      <button class="comment-edit-btn" data-testid="comment-delete" on:click|stopPropagation={() => deleteComment(c)}>🗑</button>
+                    {/if}
                   </div>
                 {/if}
               {/each}
@@ -1425,6 +1516,33 @@
     {/if}
   </div>
 </div>
+
+{#if settingsOpen}
+  <div class="diagram-modal-backdrop" on:click={() => (settingsOpen = false)}>
+    <div class="diagram-modal settings-modal" on:click|stopPropagation>
+      <button class="diagram-modal-close" on:click={() => (settingsOpen = false)} aria-label="Close settings">✕</button>
+      <h3>Settings</h3>
+      <label><input type="checkbox" bind:checked={settings.autosave} on:change={persistSettings} /> Autosave</label>
+      <label><input type="checkbox" bind:checked={settings.autoReload} on:change={persistSettings} /> Auto-reload on external changes</label>
+      <label>Autosave interval:
+        <select bind:value={settings.autosaveInterval} on:change={persistSettings}>
+          <option value={2000}>2s</option>
+          <option value={5000}>5s</option>
+          <option value={10000}>10s</option>
+        </select>
+      </label>
+    </div>
+  </div>
+{/if}
+
+{#if contextMenu}
+  <div class="context-menu-backdrop" on:click={closeContextMenu}></div>
+  <div class="context-menu" style="left:{contextMenu.x}px; top:{contextMenu.y}px;">
+    <button on:click={() => { startEditComment(contextMenu.item); closeContextMenu() }}>Edit</button>
+    <button on:click={() => { replyComment(contextMenu.item); closeContextMenu() }}>↩ Reply</button>
+    <button on:click={() => { deleteComment(contextMenu.item); closeContextMenu() }}>🗑 Delete</button>
+  </div>
+{/if}
 
 {#if fullscreenDiagramHtml}
   <div class="diagram-modal-backdrop" on:click={closeDiagramFullscreen}>
@@ -1510,6 +1628,10 @@
   .comment-author-input, .comment-text-input { width: 100%; border: 1px solid var(--app-border); border-radius: 4px; background: var(--app-bg); color: var(--app-fg); padding: 0.3rem; font-size: 0.8rem; }
   .comment-text-input { min-height: 3rem; resize: vertical; }
   .comment-edit-actions { display: flex; gap: 0.25rem; }
+  .context-menu-backdrop { position: fixed; inset: 0; z-index: 900; }
+  .context-menu { position: fixed; z-index: 901; display: flex; flex-direction: column; gap: 0.25rem; min-width: 120px; padding: 0.4rem; border: 1px solid var(--app-border); border-radius: 6px; background: var(--app-toolbar-bg); box-shadow: 0 4px 12px rgba(0,0,0,0.18); }
+  .context-menu button { justify-content: flex-start; }
+  .settings-btn { width: 32px; padding: 0; font-size: 1rem; }
   .comment-meta { font-size: 0.7rem; opacity: 0.7; }
   .divider { background: var(--app-border); cursor: col-resize; }
   .rendered { line-height: 1.6; color: var(--md-fg); background: var(--md-bg); }
