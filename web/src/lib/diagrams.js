@@ -1,8 +1,10 @@
 import DOMPurify from 'dompurify'
 import { getMermaidConfig } from './themes.js'
 
-const SVG_PROFILE = { USE_PROFILES: { svg: true, svgFilters: true } }
-const HTML_PROFILE = { USE_PROFILES: { html: true, svg: true, svgFilters: true } }
+const SVG_PROFILE = { USE_PROFILES: { svg: true, svgFilters: true }, ALLOW_DATA_ATTR: true }
+const HTML_PROFILE = { USE_PROFILES: { html: true, svg: true, svgFilters: true }, ALLOW_DATA_ATTR: true }
+
+const diagramCache = new Map()
 
 export function sanitizeHtml(html) {
   return DOMPurify.sanitize(html, HTML_PROFILE)
@@ -94,7 +96,12 @@ export async function renderDiagrams(root) {
     const lang = (ph.dataset.diagram || '').toLowerCase()
     let code = ''
     try { code = decodeCode(ph.dataset.code || '') } catch (e) { code = '' }
+    const key = lang + '\\u0000' + code
     ph.dataset.rendered = '1'
+    if (diagramCache.has(key)) {
+      ph.innerHTML = diagramCache.get(key)
+      continue
+    }
     try {
       if (lang === 'mermaid') await renderMermaid(ph, code)
       else if (lang === 'plantuml' || lang === 'puml') await renderPlantUml(ph, code)
@@ -106,6 +113,7 @@ export async function renderDiagrams(root) {
     } catch (e) {
       ph.innerHTML = '<div class="diagram-error">Render error: ' + escapeHtml(e && e.message ? e.message : e) + '</div>'
     }
+    diagramCache.set(key, ph.innerHTML)
   }
 }
 

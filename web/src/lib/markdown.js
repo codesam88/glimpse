@@ -13,6 +13,20 @@ const DIAGRAM_LANGS = new Set([
   'mermaid', 'plantuml', 'puml', 'dot', 'graphviz', 'wavedrom', 'nomnoml', 'ditaa'
 ])
 
+function sourceLinePlugin(md) {
+  md.core.ruler.after('inline', 'source_line', (state) => {
+    for (const token of state.tokens) {
+      if (!token.map) continue
+      const t = token.type
+      if (t === 'paragraph_open' || t === 'heading_open' || t === 'fence' || t === 'code_block' ||
+          t === 'blockquote_open' || t === 'list_item_open' || t === 'hr' || t === 'table_open' ||
+          t === 'html_block' || t === 'dl_open' || t === 'dt_open' || t === 'dd_open') {
+        try { token.attrSet('data-source-line', String(token.map[0])) } catch (e) {}
+      }
+    }
+  })
+}
+
 function diagramPlugin(md) {
   const defaultFence = md.renderer.rules.fence
   md.renderer.rules.fence = (tokens, idx, options, env, self) => {
@@ -22,7 +36,9 @@ function diagramPlugin(md) {
       const code = token.content
       const id = 'diag-' + Math.random().toString(36).slice(2)
       const b64 = btoa(unescape(encodeURIComponent(code)))
-      return '<div class="diagram-placeholder" data-diagram="' + lang + '" data-code="' + b64 + '" data-id="' + id + '"></div>\n'
+      const sl = token.attrGet('data-source-line')
+      const slAttr = sl != null ? ' data-source-line="' + sl + '"' : ''
+      return '<div class="diagram-placeholder" data-diagram="' + lang + '" data-code="' + b64 + '" data-id="' + id + '"' + slAttr + '></div>\n'
     }
     return defaultFence ? defaultFence(tokens, idx, options, env, self) : self.renderToken(tokens, idx, options)
   }
@@ -95,6 +111,7 @@ export function createMarkdown() {
       return orig(state, silent)
     }
   }
+  md.use(sourceLinePlugin)
   md.use(diagramPlugin)
 
   return md
