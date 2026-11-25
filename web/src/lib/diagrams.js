@@ -89,6 +89,41 @@ function renderDitaa(ph, code) {
   ph.appendChild(banner)
 }
 
+function ensureDiagramViewBox(ph) {
+  const svgs = ph.querySelectorAll('svg')
+  for (const svg of svgs) {
+    if (svg.getAttribute('viewBox')) continue
+    try {
+      const bb = svg.getBBox()
+      if (bb && bb.width > 0 && bb.height > 0) {
+        svg.setAttribute('viewBox', bb.x + ' ' + bb.y + ' ' + bb.width + ' ' + bb.height)
+      }
+    } catch (e) {}
+  }
+}
+
+function addDiagramControls(ph) {
+  if (ph.querySelector('.diagram-controls')) return
+  const ctrl = document.createElement('div')
+  ctrl.className = 'diagram-controls'
+  const btnFull = document.createElement('button')
+  btnFull.type = 'button'
+  btnFull.setAttribute('data-diagram-action', 'fullwidth')
+  btnFull.setAttribute('title', 'Toggle full width')
+  btnFull.setAttribute('aria-label', 'Toggle full width')
+  btnFull.textContent = '⤢'
+  const btnFs = document.createElement('button')
+  btnFs.type = 'button'
+  btnFs.setAttribute('data-diagram-action', 'fullscreen')
+  btnFs.setAttribute('title', 'Fullscreen')
+  btnFs.setAttribute('aria-label', 'Fullscreen')
+  btnFs.textContent = '⛶'
+  ctrl.appendChild(btnFull)
+  ctrl.appendChild(btnFs)
+  ph.appendChild(ctrl)
+  ph.classList.add('diagram-has-controls')
+}
+
 export async function renderDiagrams(root) {
   const placeholders = root.querySelectorAll('.diagram-placeholder')
   for (const ph of placeholders) {
@@ -100,20 +135,22 @@ export async function renderDiagrams(root) {
     ph.dataset.rendered = '1'
     if (diagramCache.has(key)) {
       ph.innerHTML = diagramCache.get(key)
-      continue
+    } else {
+      try {
+        if (lang === 'mermaid') await renderMermaid(ph, code)
+        else if (lang === 'plantuml' || lang === 'puml') await renderPlantUml(ph, code)
+        else if (lang === 'dot' || lang === 'graphviz') await renderDot(ph, code)
+        else if (lang === 'wavedrom') await renderWavedrom(ph, code)
+        else if (lang === 'nomnoml') await renderNomnoml(ph, code)
+        else if (lang === 'ditaa') renderDitaa(ph, code)
+        else ph.textContent = code
+      } catch (e) {
+        ph.innerHTML = '<div class="diagram-error">Render error: ' + escapeHtml(e && e.message ? e.message : e) + '</div>'
+      }
+      if (lang !== 'ditaa' && !ph.querySelector('.diagram-error')) diagramCache.set(key, ph.innerHTML)
     }
-    try {
-      if (lang === 'mermaid') await renderMermaid(ph, code)
-      else if (lang === 'plantuml' || lang === 'puml') await renderPlantUml(ph, code)
-      else if (lang === 'dot' || lang === 'graphviz') await renderDot(ph, code)
-      else if (lang === 'wavedrom') await renderWavedrom(ph, code)
-      else if (lang === 'nomnoml') await renderNomnoml(ph, code)
-      else if (lang === 'ditaa') renderDitaa(ph, code)
-      else ph.textContent = code
-    } catch (e) {
-      ph.innerHTML = '<div class="diagram-error">Render error: ' + escapeHtml(e && e.message ? e.message : e) + '</div>'
-    }
-    diagramCache.set(key, ph.innerHTML)
+    ensureDiagramViewBox(ph)
+    addDiagramControls(ph)
   }
 }
 

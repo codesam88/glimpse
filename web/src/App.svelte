@@ -21,6 +21,7 @@
   let reviewMode = null // null | 'highlight' | 'note'
   let statusMessage = ''
   let linkError = null
+  let fullscreenDiagramHtml = null
   // sidebar
   let sidebarOpen = true
   let sidebarTab = 'outline'
@@ -652,7 +653,31 @@
       loading = false
     }
   }
+  function toggleDiagramFullwidth(ph) {
+    if (!ph) return
+    ph.classList.toggle('diagram-fullwidth')
+  }
+  function openDiagramFullscreen(ph) {
+    if (!ph) return
+    fullscreenDiagramHtml = ph.innerHTML
+    try { document.body.style.overflow = 'hidden' } catch {}
+  }
+  function closeDiagramFullscreen() {
+    fullscreenDiagramHtml = null
+    try { document.body.style.overflow = '' } catch {}
+  }
+
   async function handlePreviewClick(e) {
+    const ctrl = e.target && typeof e.target.closest === 'function' ? e.target.closest('[data-diagram-action]') : null
+    if (ctrl) {
+      e.preventDefault()
+      e.stopPropagation()
+      const ph = ctrl.closest('.diagram-placeholder')
+      const action = ctrl.getAttribute('data-diagram-action')
+      if (action === 'fullwidth') toggleDiagramFullwidth(ph)
+      else if (action === 'fullscreen') openDiagramFullscreen(ph)
+      return
+    }
     const a = e.target && typeof e.target.closest === 'function' ? e.target.closest('a') : null
     if (!a) return
     const href = (a.getAttribute('href') || a.getAttribute('data-href') || '').trim()
@@ -1128,6 +1153,9 @@
     if (e.key === 'Escape' && reviewMode) {
       cancelReviewMode()
     }
+    if (e.key === 'Escape' && fullscreenDiagramHtml) {
+      closeDiagramFullscreen()
+    }
   }
   function onGlobalClick(e) {
     if (!debugOpen || !debugMenuEl) return
@@ -1347,6 +1375,15 @@
   </div>
 </div>
 
+{#if fullscreenDiagramHtml}
+  <div class="diagram-modal-backdrop" on:click={closeDiagramFullscreen}>
+    <div class="diagram-modal" on:click|stopPropagation>
+      <button class="diagram-modal-close" on:click={closeDiagramFullscreen} aria-label="Close fullscreen">✕</button>
+      <div class="diagram-modal-body">{@html fullscreenDiagramHtml}</div>
+    </div>
+  </div>
+{/if}
+
 <style>
   .toolbar { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; flex-wrap: wrap; align-items: center; position: sticky; top: 0; z-index: 50; background: var(--app-toolbar-bg); padding: 0.5rem 0.75rem; border-radius: 6px; border: 1px solid var(--app-border); box-shadow: 0 2px 8px rgba(0,0,0,0.12); }
   .toolbar button, .toolbar .file-label, .toolbar .theme-picker { height: 32px; padding: 0 0.7rem; border: 1px solid var(--app-border); border-radius: 4px; background: var(--app-bg); color: var(--app-fg); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font-size: 0.85rem; line-height: 1; box-sizing: border-box; }
@@ -1359,6 +1396,18 @@
   .mode-badge { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.2rem 0.6rem; border: 1px solid var(--app-accent); border-radius: 999px; background: var(--app-accent); color: #fff; font-size: 0.8rem; }
   .mode-badge button { border: none; background: transparent; color: #fff; cursor: pointer; padding: 0 0.2rem; height: auto; }
   .preview-scroll.review-mode { cursor: crosshair; }
+  :global(.diagram-placeholder) { position: relative; }
+  :global(.diagram-controls) { position: absolute; top: 0.4rem; right: 0.4rem; display: flex; gap: 0.25rem; opacity: 0; transition: opacity 0.15s; z-index: 5; }
+  :global(.diagram-placeholder:hover .diagram-controls),
+  :global(.diagram-placeholder:focus-within .diagram-controls) { opacity: 1; }
+  :global(.diagram-controls button) { width: 28px; height: 28px; padding: 0; border: 1px solid var(--app-border); border-radius: 4px; background: var(--app-toolbar-bg); color: var(--app-fg); cursor: pointer; font-size: 0.9rem; }
+  :global(.diagram-placeholder.diagram-fullwidth) { width: 100%; max-width: none; }
+  :global(.diagram-placeholder.diagram-fullwidth svg) { width: 100% !important; height: auto !important; max-width: none !important; }
+  .diagram-modal-backdrop { position: fixed; inset: 0; z-index: 1000; background: rgba(0,0,0,0.85); display: flex; align-items: center; justify-content: center; padding: 1rem; }
+  .diagram-modal { position: relative; max-width: 95vw; max-height: 95vh; }
+  .diagram-modal-close { position: absolute; top: -2.2rem; right: 0; width: 32px; height: 32px; border: 1px solid var(--app-border); border-radius: 4px; background: var(--app-toolbar-bg); color: var(--app-fg); cursor: pointer; }
+  .diagram-modal-body { display: flex; align-items: center; justify-content: center; }
+  .diagram-modal-body svg { max-width: 95vw; max-height: 90vh; width: auto; height: auto; }
   .sidebar-icon-btn { width: 32px; padding: 0; font-size: 1.1rem; font-weight: 700; }
   .debug-menu { position: relative; display: inline-block; }
   .debug-summary { list-style: none; cursor: pointer; user-select: none; }
@@ -1417,6 +1466,10 @@
   .rendered :global(pre) { background: var(--code-bg); color: var(--code-fg); padding: 1rem; overflow: auto; border-radius: 6px; }
   .rendered :global(code) { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
   .rendered :global(.diagram-placeholder) { margin: 1rem 0; min-height: 2rem; }
+  .rendered :global(svg) { overflow: visible; }
+  .rendered :global(svg .note) { filter: drop-shadow(1px 2px 2px rgba(0,0,0,0.25)); }
+  html.dark .rendered :global(svg .note) { filter: drop-shadow(1px 2px 2px rgba(0,0,0,0.5)); }
+  .rendered :global(svg .noteText) { text-anchor: middle; }
   .rendered :global(table) { border-collapse: collapse; margin: 1rem 0; width: auto; }
   .rendered :global(th), .rendered :global(td) { border: 1px solid var(--table-border); padding: 6px 13px; }
   .rendered :global(th) { background: var(--table-header-bg); font-weight: 600; }
