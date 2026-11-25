@@ -37,5 +37,6 @@
     "nomnoml": "^1.7.0",
     "svelte-codemirror-editor": "2.1.0",
     "wavedrom": "^3.8.0"
-  }
+  },
+  "license": "MIT"
 }

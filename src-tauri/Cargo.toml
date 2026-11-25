@@ -1,6 +1,7 @@
 [package]
 name = "glimpse"
 version = "0.1.0"
+license = "MIT"
 description = "Offline markdown viewer"
 authors = ["Glimpse"]
 edition = "2021"
