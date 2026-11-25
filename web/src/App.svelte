@@ -19,6 +19,11 @@
   // sidebar
   let sidebarOpen = true
   let sidebarTab = 'outline'
+  // Debug-only toolbar controls. Enable by visiting any URL with ?debug=1
+  // (persisted to localStorage 'debug') or by setting localStorage.debug = 'true'.
+  let debugEnabled = false
+  let debugOpen = false
+  let debugMenuEl = null
   let outlineItems = []
   let commentItems = []
   let activeHeadingLine = null
@@ -535,6 +540,10 @@
     sidebarOpen = !sidebarOpen
     persist('sidebarOpen', sidebarOpen)
   }
+  function closeDebugMenu() {
+    if (debugMenuEl) debugMenuEl.open = false
+    debugOpen = false
+  }
 
   function setSidebarTab(tab) {
     sidebarTab = tab
@@ -627,6 +636,16 @@
   onMount(async () => {
     md = createMarkdown()
     mdLang = markdown()
+    try {
+      const params = new URLSearchParams(window.location.search)
+      if (params.get('debug') === '1') {
+        debugEnabled = true
+        try { localStorage.setItem('debug', 'true') } catch {}
+      } else {
+        const stored = localStorage.getItem('debug')
+        debugEnabled = stored === 'true' || stored === '1'
+      }
+    } catch (e) { debugEnabled = false }
 
     if (isTauri()) {
       try {
@@ -720,6 +739,13 @@
       e.preventDefault()
       saveFile()
     }
+    if (e.key === 'Escape' && debugOpen) {
+      closeDebugMenu()
+    }
+  }
+  function onGlobalClick(e) {
+    if (!debugOpen || !debugMenuEl) return
+    if (!debugMenuEl.contains(e.target)) closeDebugMenu()
   }
 
   onDestroy(() => {
@@ -736,12 +762,18 @@
   })
 </script>
 
-<svelte:window on:keydown={onKeyDown} />
+<svelte:window on:keydown={onKeyDown} on:click={onGlobalClick} />
 
 <div class="toolbar" role="toolbar" aria-label="Main toolbar">
-  <div class="toolbar-group">
-    <button on:click={loadFixture} title="Load fixture markdown">Load fixture</button>
-    <button on:click={loadReviewFixture} title="Load review fixture">Load review fixture</button>
+  <button
+    class="sidebar-icon-btn"
+    on:click={toggleSidebar}
+    title={sidebarOpen ? 'Collapse Sidebar' : 'Expand Sidebar'}
+    aria-label={sidebarOpen ? 'Collapse Sidebar' : 'Expand Sidebar'}
+    data-testid="sidebar-toggle"
+  >{sidebarOpen ? '‹' : '›'}</button>
+
+  <div class="toolbar-group file-group">
     <label class="file-label" title="Open a markdown file">
       Open .md <input type="file" accept=".md,.markdown,.txt" on:change={onFile} />
     </label>
@@ -750,49 +782,52 @@
       <button on:click={saveFile} disabled={!currentPath || !dirty} title="Save file">Save{dirty ? ' *' : ''}</button>
     {/if}
   </div>
-  <span class="toolbar-sep" aria-hidden="true"></span>
-  <div class="toolbar-group">
-    <button on:click={toggleViewMode} data-testid="view-mode-toggle" aria-label="Toggle view mode" title="Toggle preview/split view">
-      View: <span class:active={viewMode === 'preview'}>Preview</span> / <span class:active={viewMode === 'split'}>Split</span>
-    </button>
-    <button on:click={toggleSidebar} data-testid="sidebar-toggle" aria-label="Toggle sidebar" title="Toggle sidebar">
-      Sidebar: {sidebarOpen ? 'on' : 'off'}
-    </button>
-    <button on:click={toggleComments} title="Toggle comments visibility">
-      Comments: {hideComments ? 'hidden' : 'muted'}
-    </button>
-  </div>
-  <span class="toolbar-sep" aria-hidden="true"></span>
-  <div class="toolbar-group">
-    <button on:click={toggleDiagrams} title="Toggle diagrams">Diagrams: {diagramsEnabled ? 'on' : 'off'}</button>
-    <button on:click={zoomOut} title="Zoom out">Zoom -</button>
-    <span class="zoom" title="Current zoom">{Math.round(zoom * 100)}%</span>
-    <button on:click={zoomIn} title="Zoom in">Zoom +</button>
-    <button on:click={resetZoom} title="Reset zoom">Reset zoom</button>
-  </div>
-  <span class="toolbar-sep" aria-hidden="true"></span>
-  <div class="toolbar-group">
+
+  <div class="toolbar-group review-group">
     <button on:click={() => wrapSelection('addition')} title="Wrap addition">Wrap ++</button>
     <button on:click={() => wrapSelection('deletion')} title="Wrap deletion">Wrap --</button>
     <button on:click={() => wrapSelection('highlight')} title="Wrap highlight">Wrap ==</button>
     <button on:click={() => wrapSelection('comment')} title="Wrap comment">Wrap &gt;&gt;</button>
-  </div>
-  <span class="toolbar-sep" aria-hidden="true"></span>
-  <div class="toolbar-group">
     <button on:click={acceptAll} title="Accept all changes">Accept all</button>
     <button on:click={rejectAll} title="Reject all changes">Reject all</button>
     <button on:click={acceptSelection} title="Accept selection">Accept sel</button>
     <button on:click={rejectSelection} title="Reject selection">Reject sel</button>
   </div>
-  <span class="toolbar-sep" aria-hidden="true"></span>
-  <div class="toolbar-group">
+
+  <div class="toolbar-spacer"></div>
+
+  <div class="toolbar-group view-group">
+    <button on:click={toggleViewMode} data-testid="view-mode-toggle" aria-label="Toggle view mode" title="Toggle preview/split view">
+      View: <span class:active={viewMode === 'preview'}>Preview</span> / <span class:active={viewMode === 'split'}>Split</span>
+    </button>
+  </div>
+
+  <div class="toolbar-group theme-group">
     <select class="theme-picker" value={theme} on:change={(e) => setTheme(e.currentTarget.value)} aria-label="Theme" title="Theme">
       {#each THEMES as t (t.id)}
         <option value={t.id}>{t.label}</option>
       {/each}
     </select>
   </div>
+
+  {#if debugEnabled}
+    <details class="debug-menu" bind:this={debugMenuEl} on:toggle={() => (debugOpen = !!debugMenuEl?.open)}>
+      <summary class="debug-summary" aria-haspopup="menu" aria-expanded={debugOpen}>Debug</summary>
+      <div class="debug-popover" role="menu">
+        <button role="menuitem" on:click={() => { loadFixture(); closeDebugMenu() }}>Load fixture</button>
+        <button role="menuitem" on:click={() => { loadReviewFixture(); closeDebugMenu() }}>Load review fixture</button>
+        <button role="menuitem" on:click={() => { toggleDiagrams(); closeDebugMenu() }}>Diagrams: {diagramsEnabled ? 'on' : 'off'}</button>
+        <button role="menuitem" on:click={() => { toggleComments(); closeDebugMenu() }}>Comments: {hideComments ? 'hidden' : 'muted'}</button>
+      </div>
+    </details>
+  {/if}
+
   <div class="toolbar-end">
+    <div class="zoom-stepper" role="group" aria-label="Zoom">
+      <button on:click={zoomOut} disabled={zoom <= 0.5} title="Zoom out">−</button>
+      <button class="zoom-pct" on:click={resetZoom} title="Reset zoom to 100%">{Math.round(zoom * 100)}%</button>
+      <button on:click={zoomIn} disabled={zoom >= 3} title="Zoom in">+</button>
+    </div>
     {#if currentPath}
       <span class="path" title={currentPath}>{currentPath}</span>
     {/if}
@@ -899,10 +934,21 @@
   .toolbar { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; flex-wrap: wrap; align-items: center; position: sticky; top: 0; z-index: 50; background: var(--app-toolbar-bg); padding: 0.5rem 0.75rem; border-radius: 6px; border: 1px solid var(--app-border); box-shadow: 0 2px 8px rgba(0,0,0,0.12); }
   .toolbar button, .toolbar .file-label, .toolbar .theme-picker { height: 32px; padding: 0 0.7rem; border: 1px solid var(--app-border); border-radius: 4px; background: var(--app-bg); color: var(--app-fg); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font-size: 0.85rem; line-height: 1; box-sizing: border-box; }
   .toolbar button:hover { filter: brightness(0.97); }
+  .toolbar button:disabled { opacity: 0.45; cursor: not-allowed; }
   .toolbar select option { background: var(--app-toolbar-bg); color: var(--app-fg); }
   .toolbar-group { display: inline-flex; gap: 0.25rem; align-items: center; }
-  .toolbar-sep { width: 1px; height: 24px; background: var(--app-border); margin: 0 0.15rem; align-self: center; opacity: 0.8; }
-  .toolbar-end { display: inline-flex; gap: 0.5rem; align-items: center; margin-left: auto; }
+  .toolbar-spacer { flex: 1 1 auto; min-width: 1rem; }
+  .toolbar-end { display: inline-flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+  .sidebar-icon-btn { width: 32px; padding: 0; font-size: 1.1rem; font-weight: 700; }
+  .debug-menu { position: relative; display: inline-block; }
+  .debug-summary { list-style: none; cursor: pointer; user-select: none; }
+  .debug-summary::-webkit-details-marker { display: none; }
+  .debug-popover { position: absolute; top: calc(100% + 4px); right: 0; z-index: 60; display: flex; flex-direction: column; gap: 0.25rem; min-width: 160px; padding: 0.4rem; border: 1px solid var(--app-border); border-radius: 6px; background: var(--app-toolbar-bg); box-shadow: 0 4px 12px rgba(0,0,0,0.18); }
+  .debug-popover button { justify-content: flex-start; }
+  .zoom-stepper { display: inline-flex; align-items: stretch; border: 1px solid var(--app-border); border-radius: 4px; overflow: hidden; background: var(--app-bg); height: 32px; }
+  .zoom-stepper button { border: none; border-radius: 0; height: 32px; padding: 0 0.6rem; background: var(--app-bg); color: var(--app-fg); }
+  .zoom-stepper button + button { border-left: 1px solid var(--app-border); }
+  .zoom-stepper .zoom-pct { min-width: 3.2rem; font-size: 0.85rem; cursor: pointer; }
   .zoom { color: var(--app-fg); font-size: 0.85rem; height: 32px; display: inline-flex; align-items: center; }
 
   .file-label input { display: none; }
