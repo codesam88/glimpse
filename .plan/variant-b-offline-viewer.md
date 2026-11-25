@@ -102,6 +102,16 @@ no egress in tcpdump run; installs verified. Ubuntu 24.04 `.deb` + generic
 rebuild explicitly deferred to post-V1. Leaves out: PNG/PDF export,
 print CSS, relative-link navigation (Phase 3).
 
+Progress (2026-11-25):
+- CI: trixie deb + ubuntu24 deb rolling on every push; appimage on tags;
+  cargo-deny blocking (licenses/bans/sources); CodeQL; dependabot; SHA-
+  pinned actions; release workflow w/ per-distro checksums. CI GREEN.
+- Real-install verification (user, Ubuntu 26.04 dev host, ubuntu24 deb):
+  install + launch OK, offline rendering confirmed (all diagram engines),
+  RSS ~255 MB (VIRT ~70 GB is WebKit reservation, not committed).
+- Remaining formal gates: clean Trixie VM install test, tcpdump egress
+  capture, lintian pass.
+
 Test matrix (Step 2 gate):
 
 - OS: clean Debian Trixie container/VM (primary V1 gate), X11 + Wayland.
