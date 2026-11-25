@@ -16,6 +16,13 @@
   let zoom = 1
   let diagramsEnabled = true
   let hideComments = false
+  // sidebar
+  let sidebarOpen = true
+  let sidebarTab = 'outline'
+  let outlineItems = []
+  let commentItems = []
+  let activeHeadingLine = null
+  let activeCommentId = null
   let currentPath = ''
   let unwatch = null
   let debounceTimer = null
@@ -90,6 +97,7 @@
     await tick()
     const root = document.querySelector('#rendered')
     if (root && diagramsEnabled) await renderDiagrams(root)
+    refreshSidebar()
   }
 
   async function readPath(path) {
@@ -176,6 +184,121 @@
     setTimeout(() => { syncing = false }, 80)
   }
 
+  // sidebar helpers
+  function findAnchorForLine(line) {
+    if (!previewEl) return null
+    const els = Array.from(previewEl.querySelectorAll('[data-source-line]'))
+    let best = null
+    for (const el of els) {
+      const sl = parseInt(el.getAttribute('data-source-line'), 10)
+      if (isNaN(sl)) continue
+      if (sl <= line) best = el
+    }
+    if (!best && els.length) best = els[0]
+    return best
+  }
+
+  function updateSidebarActive() {
+    if (!previewEl) return
+    const info = getPreviewTopSourceLine()
+    const topLine = info && !isNaN(info.line) ? info.line : 0
+    let activeH = null
+    for (const h of outlineItems) {
+      if (h.line <= topLine + 1) activeH = h
+      else break
+    }
+    activeHeadingLine = activeH ? activeH.line : (outlineItems.length ? outlineItems[0].line : null)
+    let activeC = null
+    for (const c of commentItems) {
+      if (c.line <= topLine + 1) activeC = c
+      else break
+    }
+    if (!activeC && commentItems.length) activeC = commentItems[0]
+    activeCommentId = activeC ? activeC.id : null
+  }
+
+  function refreshSidebar() {
+    const root = document.querySelector('#rendered')
+    outlineItems = []
+    commentItems = []
+    if (!root) {
+      activeHeadingLine = null
+      activeCommentId = null
+      return
+    }
+    outlineItems = Array.from(root.querySelectorAll('h1,h2,h3,h4,h5,h6')).map((h, i) => ({
+      id: 'h-' + i,
+      level: parseInt(h.tagName.slice(1), 10),
+      text: (h.textContent || '').trim(),
+      line: parseInt(h.getAttribute('data-source-line'), 10),
+      el: h,
+    }))
+    let idx = 0
+    const addRendered = (els, kind) => {
+      els.forEach((el) => {
+        const block = el.closest('[data-source-line]')
+        const line = block ? parseInt(block.getAttribute('data-source-line'), 10) : NaN
+        const safeLine = isNaN(line) ? 0 : line
+        const anchor = el.getClientRects && el.getClientRects().length ? el : (block || findAnchorForLine(safeLine))
+        commentItems.push({
+          id: 'c-' + (idx++),
+          kind,
+          text: (el.textContent || '').trim(),
+          line: safeLine,
+          el,
+          anchorEl: anchor,
+        })
+      })
+    }
+    addRendered(Array.from(root.querySelectorAll('.critic.comment')), 'critic')
+    addRendered(Array.from(root.querySelectorAll('.obsidian-comment')), 'obsidian')
+
+    // HTML comments from source (outside fenced code blocks)
+    const masked = String(text).replace(/```[\s\S]*?```|~~~[\s\S]*?~~~/g, (block) => block.replace(/[^\n]/g, ' '))
+    const htmlRegex = /<!--([\s\S]*?)-->/g
+    let m
+    while ((m = htmlRegex.exec(masked)) !== null) {
+      const line = masked.slice(0, m.index).split('\n').length - 1
+      const excerpt = m[1].trim().replace(/\s+/g, ' ')
+      const anchor = findAnchorForLine(line)
+      commentItems.push({
+        id: 'c-' + (idx++),
+        kind: 'html',
+        text: excerpt,
+        line,
+        el: null,
+        anchorEl: anchor,
+      })
+    }
+
+    commentItems.sort((a, b) => a.line - b.line)
+    commentItems = commentItems.slice()
+    activeHeadingLine = outlineItems.length ? outlineItems[0].line : null
+    activeCommentId = commentItems.length ? commentItems[0].id : null
+    updateSidebarActive()
+  }
+
+  function scrollToHeading(item) {
+    if (!item || !item.el || !previewEl) return
+    const previewRect = previewEl.getBoundingClientRect()
+    const r = item.el.getBoundingClientRect()
+    previewEl.scrollTop += r.top - previewRect.top - 8
+    activeHeadingLine = item.line
+  }
+
+  function scrollToComment(item) {
+    if (!item || !previewEl) return
+    let target = item.el
+    if (!target || (target.getClientRects && target.getClientRects().length === 0)) {
+      target = item.anchorEl || findAnchorForLine(item.line)
+    }
+    if (!target) return
+    const previewRect = previewEl.getBoundingClientRect()
+    const r = target.getBoundingClientRect()
+    previewEl.scrollTop += r.top - previewRect.top - 8
+    activeCommentId = item.id
+  }
+
   function handleEditorScroll() {
     if (syncing) return
     if (activePane !== 'editor') return
@@ -184,6 +307,7 @@
   }
 
   function handlePreviewScroll() {
+    updateSidebarActive()
     if (syncing) return
     if (activePane !== 'preview') return
     if (rafId) cancelAnimationFrame(rafId)
@@ -403,6 +527,16 @@
     persist('hideComments', hideComments)
   }
 
+  function toggleSidebar() {
+    sidebarOpen = !sidebarOpen
+    persist('sidebarOpen', sidebarOpen)
+  }
+
+  function setSidebarTab(tab) {
+    sidebarTab = tab
+    persist('sidebarTab', tab)
+  }
+
   async function toggleViewMode() {
     viewMode = viewMode === 'preview' ? 'split' : 'preview'
     persist('viewMode', viewMode)
@@ -502,6 +636,10 @@
         applyTheme(theme)
         const hc = await store.get('hideComments')
         if (hc !== null && hc !== undefined) hideComments = !!hc
+        const st = await store.get('sidebarTab')
+        if (st === 'outline' || st === 'comments') sidebarTab = st
+        const so = await store.get('sidebarOpen')
+        if (so !== null && so !== undefined) sidebarOpen = !!so
         const pl = await store.get('paneLeft')
         if (pl !== null && pl !== undefined) leftPct = Number(pl) || 50
         const vm = await store.get('viewMode')
@@ -537,6 +675,19 @@
         if (z) zoom = Number(JSON.parse(z)) || zoom
         const dg = localStorage.getItem('diagramsEnabled')
         if (dg) diagramsEnabled = !!JSON.parse(dg)
+        const stb = localStorage.getItem('sidebarTab')
+        if (stb) {
+          try {
+            const v = JSON.parse(stb)
+            if (v === 'outline' || v === 'comments') sidebarTab = v
+          } catch {
+            if (stb === 'outline' || stb === 'comments') sidebarTab = stb
+          }
+        }
+        const sob = localStorage.getItem('sidebarOpen')
+        if (sob) {
+          try { sidebarOpen = !!JSON.parse(sob) } catch {}
+        }
         const vmb = localStorage.getItem('viewMode')
         if (vmb) {
           try {
@@ -601,6 +752,9 @@
   <button on:click={toggleViewMode} data-testid="view-mode-toggle" aria-label="Toggle view mode">
     View: <span class:active={viewMode === 'preview'}>Preview</span> / <span class:active={viewMode === 'split'}>Split</span>
   </button>
+  <button on:click={toggleSidebar} data-testid="sidebar-toggle" aria-label="Toggle sidebar">
+    Sidebar: {sidebarOpen ? 'on' : 'off'}
+  </button>
   <span class="group">
     <button on:click={() => wrapSelection('addition')}>Wrap ++</button>
     <button on:click={() => wrapSelection('deletion')}>Wrap --</button>
@@ -656,6 +810,62 @@
         {@html html}
       </article>
     </div>
+    {#if sidebarOpen}
+      <aside class="sidebar" data-testid="sidebar">
+        <div class="sidebar-header">
+          <button class="sidebar-collapse" on:click={() => (sidebarOpen = false, persist('sidebarOpen', false))} aria-label="Collapse sidebar" data-testid="sidebar-collapse">›</button>
+          <div class="sidebar-tabs" role="tablist">
+            <button class="sidebar-tab" class:active={sidebarTab === 'outline'} on:click={() => setSidebarTab('outline')} data-testid="tab-outline">
+              Outline ({outlineItems.length})
+            </button>
+            <button class="sidebar-tab" class:active={sidebarTab === 'comments'} on:click={() => setSidebarTab('comments')} data-testid="tab-comments">
+              Comments ({commentItems.length})
+            </button>
+          </div>
+        </div>
+        <div class="sidebar-body">
+          {#if sidebarTab === 'outline'}
+            {#if outlineItems.length === 0}
+              <p class="empty-state" data-testid="outline-empty">No headings</p>
+            {/if}
+            <ul class="outline-list">
+              {#each outlineItems as item (item.id)}
+                <li class="outline-item" style="padding-left: {(item.level - 1) * 0.75}rem">
+                  <button
+                    class="outline-link"
+                    class:active={item.line === activeHeadingLine}
+                    data-testid="outline-item"
+                    data-line={item.line}
+                    on:click={() => scrollToHeading(item)}
+                  >
+                    {item.text}
+                  </button>
+                </li>
+              {/each}
+            </ul>
+          {:else}
+            {#if commentItems.length === 0}
+              <p class="empty-state" data-testid="comments-empty">No comments</p>
+            {/if}
+            <div class="comment-cards">
+              {#each commentItems as c (c.id)}
+                <button
+                  class="comment-card"
+                  class:active={c.id === activeCommentId}
+                  data-testid="comment-card"
+                  data-kind={c.kind}
+                  data-line={c.line}
+                  on:click={() => scrollToComment(c)}
+                >
+                  <div class="comment-excerpt">{c.text || '(empty)'}</div>
+                  <div class="comment-meta">Line {c.line + 1} · {c.kind}</div>
+                </button>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      </aside>
+    {/if}
   </div>
 </div>
 
@@ -677,7 +887,26 @@
   .pane { overflow: hidden; min-width: 0; }
   .editor-pane { height: 100%; }
   .preview-pane { height: 100%; }
-  .preview-scroll { height: 100%; overflow: auto; padding: 0 1rem; position: relative; }
+  .preview-scroll { height: 100%; overflow: auto; padding: 0 1rem; position: relative; flex: 1 1 auto; min-width: 0; }
+  .preview-pane { display: flex; flex-direction: row; }
+  .sidebar { width: 280px; min-width: 280px; max-width: 280px; height: 100%; overflow: auto; border-left: 1px solid var(--app-border); background: var(--app-toolbar-bg); color: var(--app-fg); display: flex; flex-direction: column; }
+  .sidebar-header { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; border-bottom: 1px solid var(--app-border); position: sticky; top: 0; background: var(--app-toolbar-bg); z-index: 5; }
+  .sidebar-collapse { padding: 0.2rem 0.5rem; border: 1px solid var(--app-border); border-radius: 4px; background: var(--app-toolbar-bg); color: var(--app-fg); cursor: pointer; }
+  .sidebar-tabs { display: flex; gap: 0.25rem; flex: 1; }
+  .sidebar-tab { flex: 1; padding: 0.3rem 0.5rem; border: 1px solid var(--app-border); border-radius: 4px; background: var(--app-toolbar-bg); color: var(--app-fg); cursor: pointer; font-size: 0.8rem; }
+  .sidebar-tab.active { font-weight: 700; background: var(--app-accent); color: #fff; border-color: var(--app-accent); }
+  .sidebar-body { padding: 0.5rem; flex: 1; overflow: auto; }
+  .empty-state { color: var(--app-fg); opacity: 0.6; font-size: 0.85rem; }
+  .outline-list { list-style: none; margin: 0; padding: 0; }
+  .outline-item { margin: 0.15rem 0; }
+  .outline-link { display: block; width: 100%; text-align: left; background: transparent; border: none; color: var(--app-fg); cursor: pointer; font-size: 0.85rem; padding: 0.2rem 0.3rem; border-radius: 3px; }
+  .outline-link:hover { background: rgba(128,128,128,0.15); }
+  .outline-link.active { font-weight: 700; color: var(--app-accent); }
+  .comment-cards { display: flex; flex-direction: column; gap: 0.5rem; }
+  .comment-card { text-align: left; width: 100%; padding: 0.5rem; border: 1px solid var(--app-border); border-radius: 6px; background: var(--md-bg); color: var(--md-fg); cursor: pointer; }
+  .comment-card.active { border-color: var(--app-accent); box-shadow: 0 0 0 1px var(--app-accent); }
+  .comment-excerpt { font-size: 0.85rem; margin-bottom: 0.25rem; word-break: break-word; }
+  .comment-meta { font-size: 0.7rem; opacity: 0.7; }
   .divider { background: var(--app-border); cursor: col-resize; }
   .rendered { line-height: 1.6; color: var(--md-fg); background: var(--md-bg); }
   .rendered :global(h1), .rendered :global(h2), .rendered :global(h3) { margin-top: 1.2em; }
