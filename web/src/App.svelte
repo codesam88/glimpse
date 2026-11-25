@@ -50,8 +50,10 @@
   let conflict = null
   let ignoredDiskHash = null
   // scroll sync
-  let syncing = false
-  let activePane = 'editor'
+  let syncUntil = 0
+  let editorRafId = null
+  let previewRafId = null
+  let editorScrollListenerAttached = false
   let rafId = null
   let previewDebounce = null
 
@@ -168,9 +170,8 @@
       const ratio = (srcLine - lowerSl) / (upperSl - lowerSl)
       target = lowerTop + ratio * (upperTop - lowerTop)
     }
-    syncing = true
+    syncUntil = performance.now() + 80
     previewEl.scrollTop = Math.max(0, target - 8)
-    setTimeout(() => { syncing = false }, 80)
   }
 
   function syncPreviewToEditor() {
@@ -179,9 +180,8 @@
     if (!info || isNaN(info.line)) return
     const targetLineNo = Math.min(editorView.state.doc.lines, Math.max(1, info.line + 1))
     const line = editorView.state.doc.line(targetLineNo)
-    syncing = true
+    syncUntil = performance.now() + 80
     editorView.dispatch({ effects: EditorView.scrollIntoView(line.from, { y: 'start' }) })
-    setTimeout(() => { syncing = false }, 80)
   }
 
   // sidebar helpers
@@ -300,18 +300,22 @@
   }
 
   function handleEditorScroll() {
-    if (syncing) return
-    if (activePane !== 'editor') return
-    if (rafId) cancelAnimationFrame(rafId)
-    rafId = requestAnimationFrame(() => syncEditorToPreview())
+    if (performance.now() < syncUntil) return
+    if (editorRafId) cancelAnimationFrame(editorRafId)
+    editorRafId = requestAnimationFrame(() => {
+      editorRafId = null
+      syncEditorToPreview()
+    })
   }
 
   function handlePreviewScroll() {
     updateSidebarActive()
-    if (syncing) return
-    if (activePane !== 'preview') return
-    if (rafId) cancelAnimationFrame(rafId)
-    rafId = requestAnimationFrame(() => syncPreviewToEditor())
+    if (performance.now() < syncUntil) return
+    if (previewRafId) cancelAnimationFrame(previewRafId)
+    previewRafId = requestAnimationFrame(() => {
+      previewRafId = null
+      syncPreviewToEditor()
+    })
   }
 
   async function watchParent(path) {
@@ -540,14 +544,13 @@
   async function toggleViewMode() {
     viewMode = viewMode === 'preview' ? 'split' : 'preview'
     persist('viewMode', viewMode)
-    if (viewMode === 'split') {
-      await tick()
-      requestAnimationFrame(() => {
-        if (editorView) {
-          try { editorView.requestMeasure() } catch (e) { console.warn(e) }
-        }
-      })
-    }
+    await tick()
+    attachEditorScrollListener()
+    requestAnimationFrame(() => {
+      if (editorView) {
+        try { editorView.requestMeasure() } catch (e) { console.warn(e) }
+      }
+    })
   }
 
   async function reloadFromDisk() {
@@ -612,8 +615,13 @@
 
   function handleReady(view) {
     editorView = view
-    // attach scroll listener
-    view.scrollDOM.addEventListener('scroll', handleEditorScroll, { passive: true })
+    attachEditorScrollListener()
+  }
+
+  function attachEditorScrollListener() {
+    if (!editorView || editorScrollListenerAttached) return
+    try { editorView.scrollDOM.addEventListener('scroll', handleEditorScroll, { passive: true }) } catch (e) { console.warn(e) }
+    editorScrollListenerAttached = true
   }
 
   onMount(async () => {
@@ -721,6 +729,7 @@
     if (editorView) {
       try { editorView.scrollDOM.removeEventListener('scroll', handleEditorScroll) } catch {}
     }
+    editorScrollListenerAttached = false
     if (previewEl) {
       try { previewEl.removeEventListener('scroll', handlePreviewScroll) } catch {}
     }
@@ -729,51 +738,68 @@
 
 <svelte:window on:keydown={onKeyDown} />
 
-<div class="toolbar">
-  <button on:click={loadFixture}>Load fixture</button>
-  <button on:click={loadReviewFixture}>Load review fixture</button>
-  <label class="file-label">
-    Open .md <input type="file" accept=".md,.markdown,.txt" on:change={onFile} />
-  </label>
-  {#if isTauri()}
-    <button on:click={() => openPath(currentPath || '', false)} disabled={!currentPath}>Reload</button>
-    <button on:click={saveFile} disabled={!currentPath || !dirty}>Save{dirty ? ' *' : ''}</button>
-  {/if}
-  <select class="theme-picker" value={theme} on:change={(e) => setTheme(e.currentTarget.value)} aria-label="Theme">
-    {#each THEMES as t (t.id)}
-      <option value={t.id}>{t.label}</option>
-    {/each}
-  </select>
-  <button on:click={zoomOut}>Zoom -</button>
-  <span class="zoom">{Math.round(zoom * 100)}%</span>
-  <button on:click={zoomIn}>Zoom +</button>
-  <button on:click={resetZoom}>Reset zoom</button>
-  <button on:click={toggleDiagrams}>Diagrams: {diagramsEnabled ? 'on' : 'off'}</button>
-  <button on:click={toggleViewMode} data-testid="view-mode-toggle" aria-label="Toggle view mode">
-    View: <span class:active={viewMode === 'preview'}>Preview</span> / <span class:active={viewMode === 'split'}>Split</span>
-  </button>
-  <button on:click={toggleSidebar} data-testid="sidebar-toggle" aria-label="Toggle sidebar">
-    Sidebar: {sidebarOpen ? 'on' : 'off'}
-  </button>
-  <span class="group">
-    <button on:click={() => wrapSelection('addition')}>Wrap ++</button>
-    <button on:click={() => wrapSelection('deletion')}>Wrap --</button>
-    <button on:click={() => wrapSelection('highlight')}>Wrap ==</button>
-    <button on:click={() => wrapSelection('comment')}>Wrap &gt;&gt;</button>
-  </span>
-  <span class="group">
-    <button on:click={acceptAll}>Accept all</button>
-    <button on:click={rejectAll}>Reject all</button>
-    <button on:click={acceptSelection}>Accept sel</button>
-    <button on:click={rejectSelection}>Reject sel</button>
-  </span>
-  <button on:click={toggleComments}>Comments: {hideComments ? 'hidden' : 'muted'}</button>
-  {#if currentPath}
-    <span class="path">{currentPath}</span>
-  {/if}
-  {#if dirty}
-    <span class="dirty">unsaved</span>
-  {/if}
+<div class="toolbar" role="toolbar" aria-label="Main toolbar">
+  <div class="toolbar-group">
+    <button on:click={loadFixture} title="Load fixture markdown">Load fixture</button>
+    <button on:click={loadReviewFixture} title="Load review fixture">Load review fixture</button>
+    <label class="file-label" title="Open a markdown file">
+      Open .md <input type="file" accept=".md,.markdown,.txt" on:change={onFile} />
+    </label>
+    {#if isTauri()}
+      <button on:click={() => openPath(currentPath || '', false)} disabled={!currentPath} title="Reload from disk">Reload</button>
+      <button on:click={saveFile} disabled={!currentPath || !dirty} title="Save file">Save{dirty ? ' *' : ''}</button>
+    {/if}
+  </div>
+  <span class="toolbar-sep" aria-hidden="true"></span>
+  <div class="toolbar-group">
+    <button on:click={toggleViewMode} data-testid="view-mode-toggle" aria-label="Toggle view mode" title="Toggle preview/split view">
+      View: <span class:active={viewMode === 'preview'}>Preview</span> / <span class:active={viewMode === 'split'}>Split</span>
+    </button>
+    <button on:click={toggleSidebar} data-testid="sidebar-toggle" aria-label="Toggle sidebar" title="Toggle sidebar">
+      Sidebar: {sidebarOpen ? 'on' : 'off'}
+    </button>
+    <button on:click={toggleComments} title="Toggle comments visibility">
+      Comments: {hideComments ? 'hidden' : 'muted'}
+    </button>
+  </div>
+  <span class="toolbar-sep" aria-hidden="true"></span>
+  <div class="toolbar-group">
+    <button on:click={toggleDiagrams} title="Toggle diagrams">Diagrams: {diagramsEnabled ? 'on' : 'off'}</button>
+    <button on:click={zoomOut} title="Zoom out">Zoom -</button>
+    <span class="zoom" title="Current zoom">{Math.round(zoom * 100)}%</span>
+    <button on:click={zoomIn} title="Zoom in">Zoom +</button>
+    <button on:click={resetZoom} title="Reset zoom">Reset zoom</button>
+  </div>
+  <span class="toolbar-sep" aria-hidden="true"></span>
+  <div class="toolbar-group">
+    <button on:click={() => wrapSelection('addition')} title="Wrap addition">Wrap ++</button>
+    <button on:click={() => wrapSelection('deletion')} title="Wrap deletion">Wrap --</button>
+    <button on:click={() => wrapSelection('highlight')} title="Wrap highlight">Wrap ==</button>
+    <button on:click={() => wrapSelection('comment')} title="Wrap comment">Wrap &gt;&gt;</button>
+  </div>
+  <span class="toolbar-sep" aria-hidden="true"></span>
+  <div class="toolbar-group">
+    <button on:click={acceptAll} title="Accept all changes">Accept all</button>
+    <button on:click={rejectAll} title="Reject all changes">Reject all</button>
+    <button on:click={acceptSelection} title="Accept selection">Accept sel</button>
+    <button on:click={rejectSelection} title="Reject selection">Reject sel</button>
+  </div>
+  <span class="toolbar-sep" aria-hidden="true"></span>
+  <div class="toolbar-group">
+    <select class="theme-picker" value={theme} on:change={(e) => setTheme(e.currentTarget.value)} aria-label="Theme" title="Theme">
+      {#each THEMES as t (t.id)}
+        <option value={t.id}>{t.label}</option>
+      {/each}
+    </select>
+  </div>
+  <div class="toolbar-end">
+    {#if currentPath}
+      <span class="path" title={currentPath}>{currentPath}</span>
+    {/if}
+    {#if dirty}
+      <span class="dirty">unsaved</span>
+    {/if}
+  </div>
 </div>
 
 {#if loading}
@@ -792,7 +818,7 @@
 {/if}
 
 <div class="split" class:preview-mode={viewMode === 'preview'} bind:this={splitEl} style="grid-template-columns: {viewMode === 'split' ? leftPct + '% 6px 1fr' : '1fr'};">
-  <div class="pane editor-pane" bind:this={editorPaneEl} on:mouseenter={() => (activePane = 'editor')}>
+  <div class="pane editor-pane" bind:this={editorPaneEl}>
     <CodeMirror
       bind:value={text}
       lang={mdLang}
@@ -804,7 +830,7 @@
     />
   </div>
   <div class="divider" on:mousedown={startResize}></div>
-  <div class="pane preview-pane" bind:this={previewPaneEl} on:mouseenter={() => (activePane = 'preview')}>
+  <div class="pane preview-pane" bind:this={previewPaneEl}>
     <div class="preview-scroll" class:hide-comments={hideComments} bind:this={previewEl} on:scroll={handlePreviewScroll}>
       <article id="rendered" class="rendered">
         {@html html}
@@ -870,25 +896,28 @@
 </div>
 
 <style>
-  .toolbar { display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; align-items: center; position: sticky; top: 0; z-index: 50; background: var(--app-toolbar-bg); padding: 0.5rem 0.75rem; border-radius: 4px; }
-  .toolbar button, .file-label, .theme-picker { padding: 0.4rem 0.8rem; border: 1px solid var(--app-border); border-radius: 4px; background: var(--app-toolbar-bg); color: var(--app-fg); cursor: pointer; }
+  .toolbar { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; flex-wrap: wrap; align-items: center; position: sticky; top: 0; z-index: 50; background: var(--app-toolbar-bg); padding: 0.5rem 0.75rem; border-radius: 6px; border: 1px solid var(--app-border); box-shadow: 0 2px 8px rgba(0,0,0,0.12); }
+  .toolbar button, .toolbar .file-label, .toolbar .theme-picker { height: 32px; padding: 0 0.7rem; border: 1px solid var(--app-border); border-radius: 4px; background: var(--app-bg); color: var(--app-fg); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font-size: 0.85rem; line-height: 1; box-sizing: border-box; }
+  .toolbar button:hover { filter: brightness(0.97); }
   .toolbar select option { background: var(--app-toolbar-bg); color: var(--app-fg); }
-  .zoom { color: var(--app-fg); }
+  .toolbar-group { display: inline-flex; gap: 0.25rem; align-items: center; }
+  .toolbar-sep { width: 1px; height: 24px; background: var(--app-border); margin: 0 0.15rem; align-self: center; opacity: 0.8; }
+  .toolbar-end { display: inline-flex; gap: 0.5rem; align-items: center; margin-left: auto; }
+  .zoom { color: var(--app-fg); font-size: 0.85rem; height: 32px; display: inline-flex; align-items: center; }
 
   .file-label input { display: none; }
   .status { color: var(--app-fg); opacity: 0.7; }
   .status.error { color: #b00020; opacity: 1; }
   .dirty { color: #b00020; font-size: 0.8rem; }
-  .split { display: grid; height: calc(100vh - 80px); gap: 0; }
+  .split { display: grid; height: calc(100vh - 100px); gap: 0; min-height: 0; }
   .split.preview-mode .editor-pane,
   .split.preview-mode .divider { display: none; }
   .conflict-banner { display: flex; gap: 0.5rem; align-items: center; padding: 0.5rem 0.75rem; margin-bottom: 0.5rem; background: #fff3cd; color: #664d03; border: 1px solid #ffecb5; border-radius: 4px; }
   .toolbar button span.active { font-weight: 700; text-decoration: underline; }
-  .pane { overflow: hidden; min-width: 0; }
-  .editor-pane { height: 100%; }
-  .preview-pane { height: 100%; }
-  .preview-scroll { height: 100%; overflow: auto; padding: 0 1rem; position: relative; flex: 1 1 auto; min-width: 0; }
-  .preview-pane { display: flex; flex-direction: row; }
+  .pane { overflow: hidden; min-width: 0; min-height: 0; }
+  .editor-pane { height: 100%; min-height: 0; display: flex; flex-direction: column; }
+  .preview-pane { height: 100%; min-height: 0; display: flex; flex-direction: row; }
+  .preview-scroll { height: 100%; overflow: auto; padding: 0 1rem; position: relative; flex: 1 1 auto; min-width: 0; min-height: 0; }
   .sidebar { width: 280px; min-width: 280px; max-width: 280px; height: 100%; overflow: auto; border-left: 1px solid var(--app-border); background: var(--app-toolbar-bg); color: var(--app-fg); display: flex; flex-direction: column; }
   .sidebar-header { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; border-bottom: 1px solid var(--app-border); position: sticky; top: 0; background: var(--app-toolbar-bg); z-index: 5; }
   .sidebar-collapse { padding: 0.2rem 0.5rem; border: 1px solid var(--app-border); border-radius: 4px; background: var(--app-toolbar-bg); color: var(--app-fg); cursor: pointer; }
@@ -923,8 +952,9 @@
   .path { font-size: 0.8rem; color: var(--app-fg); opacity: 0.7; max-width: 40ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .zoom { font-size: 0.85rem; }
   /* CodeMirror fill */
-  .editor-pane :global(.cm-editor) { height: 100%; }
-  .editor-pane :global(.cm-scroller) { overflow: auto; }
+  .editor-pane :global(.codemirror-wrapper) { height: 100%; min-height: 0; display: flex; flex-direction: column; }
+  .editor-pane :global(.cm-editor) { height: 100%; min-height: 0; flex: 1 1 auto; }
+  .editor-pane :global(.cm-scroller) { overflow: auto; height: 100%; min-height: 0; flex: 1 1 auto; }
   .toolbar .group { display: inline-flex; gap: 0.25rem; }
   .preview-scroll.hide-comments .rendered :global(.obsidian-comment) { display: none; }
   .rendered :global(.obsidian-comment) { color: #6b6b6b; font-style: italic; background: rgba(128,128,128,0.15); border-radius: 3px; padding: 0 0.2em; }

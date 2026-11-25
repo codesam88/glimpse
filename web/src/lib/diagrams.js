@@ -1,5 +1,5 @@
 import DOMPurify from 'dompurify'
-import { getMermaidConfig } from './themes.js'
+import { getMermaidConfig, currentThemeId } from './themes.js'
 
 const SVG_PROFILE = { USE_PROFILES: { svg: true, svgFilters: true }, ALLOW_DATA_ATTR: true }
 const HTML_PROFILE = { USE_PROFILES: { html: true, svg: true, svgFilters: true }, ALLOW_DATA_ATTR: true }
@@ -96,7 +96,7 @@ export async function renderDiagrams(root) {
     const lang = (ph.dataset.diagram || '').toLowerCase()
     let code = ''
     try { code = decodeCode(ph.dataset.code || '') } catch (e) { code = '' }
-    const key = lang + '\\u0000' + code
+    const key = lang + '\\u0000' + currentThemeId() + '\\u0000' + code
     ph.dataset.rendered = '1'
     if (diagramCache.has(key)) {
       ph.innerHTML = diagramCache.get(key)

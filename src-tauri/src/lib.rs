@@ -1,8 +1,20 @@
 use tauri::{Emitter, Manager};
 
+fn canonical_initial_path(arg: &str) -> String {
+    // Glimpse opens arbitrary user files; return an absolute, canonicalized
+    // path so the fs plugin scope (and any relative-path resolution) matches
+    // the location the OS actually operates on.
+    std::fs::canonicalize(arg)
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| arg.to_string())
+}
+
 #[tauri::command]
 fn get_initial_path() -> Option<String> {
-    std::env::args().skip(1).find(|a| !a.starts_with('-'))
+    std::env::args()
+        .skip(1)
+        .find(|a| !a.starts_with('-'))
+        .map(|a| canonical_initial_path(&a))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -14,7 +26,7 @@ pub fn run() {
                 let _ = w.set_focus();
             }
             if let Some(path) = argv.iter().skip(1).find(|a| !a.starts_with('-')) {
-                let _ = app.emit("file-opened", path.clone());
+                let _ = app.emit("file-opened", canonical_initial_path(path));
             }
         }))
         .plugin(tauri_plugin_dialog::init())
