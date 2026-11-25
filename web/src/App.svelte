@@ -257,10 +257,19 @@
   .rendered :global(pre) { background: #f6f8fa; padding: 1rem; overflow: auto; border-radius: 6px; }
   .rendered :global(code) { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
   .rendered :global(.diagram-placeholder) { margin: 1rem 0; min-height: 2rem; }
+  .rendered :global(table) { border-collapse: collapse; margin: 1rem 0; width: auto; }
+  .rendered :global(th), .rendered :global(td) { border: 1px solid #d0d7de; padding: 6px 13px; }
+  .rendered :global(th) { background: #f6f8fa; font-weight: 600; }
+  .rendered :global(tbody tr:nth-child(even)) { background: #f6f8fa; }
+  .rendered :global(th), .rendered :global(td) { text-align: inherit; }
   .rendered :global(.diagram-error) { color: #b00020; border: 1px solid #b00020; padding: 0.5rem; border-radius: 4px; }
   .rendered :global(.ditaa-banner) { background: #fff3cd; color: #664d03; border: 1px solid #ffecb5; padding: 0.5rem; border-radius: 4px; margin-top: 0.5rem; }
   :global(html.dark) { background: #1e1e1e; color: #ddd; }
   :global(html.dark .rendered pre) { background: #2d2d2d; color: #ddd; }
+  :global(html.dark .rendered table) { color: #ddd; }
+  :global(html.dark .rendered th), :global(html.dark .rendered td) { border-color: #30363d; }
+  :global(html.dark .rendered th) { background: #161b22; }
+  :global(html.dark .rendered tbody tr:nth-child(even)) { background: #161b22; }
   .path { font-size: 0.8rem; color: #666; max-width: 40ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .zoom { font-size: 0.85rem; }
 </style>

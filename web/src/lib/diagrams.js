@@ -22,7 +22,7 @@ function decodeCode(b64) {
 async function renderMermaid(ph, code) {
   const mermaid = (await import('mermaid')).default
   const dark = document.documentElement.classList.contains('dark')
-  mermaid.initialize({ startOnLoad: false, theme: dark ? 'dark' : 'default' })
+  mermaid.initialize({ startOnLoad: false, theme: dark ? 'dark' : 'default', securityLevel: 'strict', htmlLabels: false, flowchart: { htmlLabels: false } })
   const id = 'mmd-' + Math.random().toString(36).slice(2)
   const { svg } = await mermaid.render(id, code)
   ph.innerHTML = DOMPurify.sanitize(svg, SVG_PROFILE)
