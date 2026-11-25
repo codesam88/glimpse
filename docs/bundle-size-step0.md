@@ -49,3 +49,11 @@ Output: `web/dist` = 13 MB total (uncompressed). Total JS ≈ 10.7 MB.
 - Broken PlantUML syntax currently renders PlantUML's own error SVG; Step 1 should add explicit error cards.
 - Dark toggle re-renders diagrams; scroll preservation and content-hash caching deferred to Step 1.
 - CSP uses `connect-src 'self' ws: wss:` for dev HMR; production preview verified with no remote fetch.
+
+## Step 0 — CriticMarkup (appended)
+
+- markdown-it-critic exact version: 1.0.1 (MIT), pinned in web/package.json (no caret).
+- Plugin order in createMarkdown(): taskLists → footnote → deflist → texmath → markdownItCritic (silent-mode-wrapped) → diagramPlugin. Rationale: texmath registers inline rules before 'escape' so it runs before critic regardless; critic's inline rules are pushed to the end and recursively tokenize their content so KaTeX parses inside marks; diagramPlugin stays last to own fence rendering. Marks do not parse inside fences (fence content is not inline-tokenized) and unclosed marks fall back to literal source.
+- DOMPurify HTML_PROFILE unchanged: del/ins/mark/span.critic.comment already pass (verified).
+- Bundle delta: total JS 10.76 MB (was ~10.7 MB); markdown-it-critic folded into index chunk (1.63 MB); no new remote requests.
+- Offline: dev + preview = 0 remote requests, 0 page errors.

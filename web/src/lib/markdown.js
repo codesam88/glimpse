@@ -3,6 +3,7 @@ import taskLists from 'markdown-it-task-lists'
 import footnote from 'markdown-it-footnote'
 import deflist from 'markdown-it-deflist'
 import texmath from 'markdown-it-texmath'
+import markdownItCritic from 'markdown-it-critic'
 import katex from 'katex'
 import hljs from 'highlight.js'
 
@@ -48,6 +49,52 @@ export function createMarkdown() {
   md.use(footnote)
   md.use(deflist)
   md.use(texmath, { engine: katex, delimiters: 'dollars' })
+  md.use(markdownItCritic)
+  // markdown-it-critic's inline rules return true in `silent` mode without
+  // advancing state.pos, which crashes markdown-it when validating inside
+  // link labels/emphasis. Wrap the registered critic rules so silent mode
+  // still consumes input. (See docs/review-step0.md / Step 0.)
+  const criticMarkers = {
+    critic_addition: { open: '{++', close: '++}' },
+    critic_deletion: { open: '{--', close: '--}' },
+    critic_highlight: { open: '{==', close: '==}' },
+    critic_comment: { open: '{>>', close: '<<}' },
+  }
+  for (const rule of md.inline.ruler.__rules__) {
+    const m = criticMarkers[rule.name]
+    if (!m) continue
+    const orig = rule.fn
+    rule.fn = (state, silent) => {
+      const start = state.pos
+      if (!state.src.startsWith(m.open, start)) return orig(state, silent)
+      if (rule.name === 'critic_substitution') return orig(state, silent)
+      const closeIndex = state.src.indexOf(m.close, start + m.open.length)
+      if (closeIndex === -1) return false
+      if (silent) {
+        state.pos = closeIndex + m.close.length
+        return true
+      }
+      return orig(state, silent)
+    }
+  }
+  // substitution: handle silent pos advancement separately
+  const subRule = md.inline.ruler.__rules__.find((r) => r.name === 'critic_substitution')
+  if (subRule) {
+    const orig = subRule.fn
+    subRule.fn = (state, silent) => {
+      const start = state.pos
+      if (!state.src.startsWith('{~~', start)) return orig(state, silent)
+      const midIndex = state.src.indexOf('~>', start + 3)
+      if (midIndex === -1) return false
+      const closeIndex = state.src.indexOf('~~}', midIndex + 2)
+      if (closeIndex === -1) return false
+      if (silent) {
+        state.pos = closeIndex + 3
+        return true
+      }
+      return orig(state, silent)
+    }
+  }
   md.use(diagramPlugin)
 
   return md

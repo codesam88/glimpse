@@ -126,6 +126,20 @@
     }
   }
 
+  async function loadReviewFixture() {
+    loading = true
+    error = ''
+    try {
+      const r = await fetch('/fixture-review.md')
+      if (!r.ok) throw new Error('review fixture not found (' + r.status + ')')
+      await loadText(await r.text())
+    } catch (e) {
+      error = String(e)
+    } finally {
+      loading = false
+    }
+  }
+
   async function onFile(e) {
     const f = e.target.files && e.target.files[0]
     if (!f) return
@@ -239,6 +253,7 @@
 
 <div class="toolbar">
   <button on:click={loadFixture}>Load fixture</button>
+  <button on:click={loadReviewFixture}>Load review fixture</button>
   <label class="file-label">
     Open .md <input type="file" accept=".md,.markdown,.txt" on:change={onFile} />
   </label>

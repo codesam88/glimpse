@@ -17,3 +17,58 @@
 body { margin: 0; padding: 1rem; background: var(--app-bg); color: var(--app-fg); }
 * { box-sizing: border-box; }
 a { color: var(--link-color); }
+
+/* CriticMarkup (markdown-it-critic) */
+.rendered ins {
+  background: #d4edda;
+  color: #155724;
+  text-decoration: none;
+  padding: 0 0.15em;
+  border-radius: 3px;
+}
+.rendered del {
+  background: #f8d7da;
+  color: #721c24;
+  text-decoration: line-through;
+  padding: 0 0.15em;
+  border-radius: 3px;
+}
+.rendered mark {
+  background: #fff3cd;
+  color: #664d03;
+  padding: 0 0.15em;
+  border-radius: 3px;
+}
+.rendered .critic.comment,
+.rendered .critic.comment-over {
+  background: #e7f1ff;
+  color: #084298;
+  font-style: italic;
+  padding: 0 0.2em;
+  border-radius: 3px;
+  border: 1px dashed #9ec5fe;
+}
+.rendered ins.break,
+.rendered del.break { font-weight: 600; }
+
+html.dark .rendered ins { background: #1f3b2d; color: #9be9a8; }
+html.dark .rendered del { background: #3b1f24; color: #f5a3a8; }
+html.dark .rendered mark { background: #3b3317; color: #ffe08a; }
+html.dark .rendered .critic.comment,
+html.dark .rendered .critic.comment-over { background: #1f2a3b; color: #9ec5fe; border-color: #3b5a8a; }
+
+@media print {
+  .rendered ins,
+  .rendered del,
+  .rendered mark,
+  .rendered .critic.comment,
+  .rendered .critic.comment-over {
+    color: #000 !important;
+    background: transparent !important;
+  }
+  .rendered ins { text-decoration: underline; }
+  .rendered del { text-decoration: line-through; }
+  .rendered mark { font-weight: bold; border-bottom: 1px solid #000; }
+  .rendered .critic.comment,
+  .rendered .critic.comment-over { font-style: italic; border: 1px solid #000; }
+}
