@@ -7,6 +7,7 @@
   import { sanitizeHtml, renderDiagrams } from './lib/diagrams.js'
   import { THEMES, DEFAULT_THEME, applyTheme } from './lib/themes.js'
   import { transformCriticMarkup, wrapWithMarkers } from './lib/reviewTransforms.js'
+  import { loadTransclusion } from './lib/transclude.js'
   import { replaceOuterContent, removeOuter, insertReplyInside } from './lib/comments.js'
   import { getDefaults, findAction, mergeBindings } from './lib/keymap.js'
 
@@ -112,10 +113,27 @@
 
   async function loadText(source) {
     if (!md) md = createMarkdown()
-    const h = hashText(source)
+    const baseDir = currentPath ? dirname(currentPath) : ''
+    let expanded = source
+    try {
+      const r = await loadTransclusion(source, baseDir, {
+        readFileFn: async (p) => {
+          try { return await readPath(p) } catch (e) {
+            if (!isTauri()) {
+              const resp = await fetch(p)
+              if (!resp.ok) throw new Error('not found')
+              return await resp.text()
+            }
+            throw e
+          }
+        }
+      })
+      expanded = r.text
+    } catch (e) { /* fall back to source */ }
+    const h = hashText(expanded)
     if (h === lastHash && html) return
     lastHash = h
-    html = sanitizeHtml(md.render(source))
+    html = sanitizeHtml(md.render(expanded))
     await tick()
     const root = document.querySelector('#rendered')
     if (root && diagramsEnabled) await renderDiagrams(root)

@@ -6,7 +6,7 @@ import texmath from 'markdown-it-texmath'
 import markdownItCritic from 'markdown-it-critic'
 import katex from 'katex'
 import hljs from 'highlight.js'
-import { Slugger } from './slug.js'
+import { slugify, Slugger } from './slug.js'
 
 import 'katex/dist/katex.min.css'
 
@@ -107,10 +107,24 @@ function headingIdPlugin(md) {
     for (let i = 0; i < state.tokens.length; i++) {
       const token = state.tokens[i]
       if (token.type !== 'heading_open') continue
-      let text = ''
       const inline = state.tokens[i + 1]
-      if (inline && inline.type === 'inline') text = inline.content
-      try { token.attrSet('id', slugger.slug(text)) } catch (e) {}
+      let text = (inline && inline.type === 'inline') ? inline.content : ''
+      const m = text.match(/\s*\{#([^}]+)\}\s*$/)
+      let base = text
+      if (m) {
+        base = m[1].trim()
+        const stripped = text.replace(/\s*\{#[^}]+\}\s*$/, '')
+        if (inline) {
+          inline.content = stripped
+          if (inline.children && inline.children.length) {
+            const last = inline.children[inline.children.length - 1]
+            if (last && last.type === 'text') last.content = last.content.replace(/\s*\{#[^}]+\}\s*$/, '')
+          }
+        }
+      } else {
+        base = slugify(text)
+      }
+      try { token.attrSet('id', slugger.slug(base)) } catch (e) {}
     }
   })
 }
