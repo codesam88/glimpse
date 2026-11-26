@@ -1,8 +1,9 @@
-// Pure transclusion helpers for Glimpse.
+// Render-time transclusion helpers for Glimpse.
 //
-// resolveInclude(baseDir, href) -> normalized path (no network).
-// loadTransclusion(text, baseDir, { readFileFn, depth, visited, maxDepth, maxBytes })
-//   -> { text, errors } with expanded includes.
+// resolveInclude(baseDir, href) -> normalized path.
+// renderTransclusions(md, sourceText, baseDir, opts) -> { text, includedPaths }
+//   where text is source with include links replaced by rendered HTML blocks
+//   carrying provenance attrs (data-include-path, data-include-line).
 
 function normalizePath(p) {
   const leading = String(p || '').startsWith('/') ? '/' : ''
@@ -31,32 +32,30 @@ function isIncludeLink(href) {
   return ['md', 'markdown', 'mmd'].includes(ext)
 }
 
+function escapeHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
 const INCLUDE_RE = /\[([^\]]+)\]\(\1\)/g
 
-export async function loadTransclusion(text, baseDir, opts = {}) {
+export async function renderTransclusions(md, sourceText, baseDir, opts = {}) {
   const readFileFn = opts.readFileFn || (async () => { throw new Error('no reader') })
   const depth = opts.depth || 0
   const maxDepth = opts.maxDepth == null ? 5 : opts.maxDepth
   const maxBytes = opts.maxBytes == null ? 512 * 1024 : opts.maxBytes
   const visited = opts.visited || new Set()
-  const errors = []
+  const includedPaths = []
 
-  if (depth > maxDepth) {
-    return { text: '> **Transclusion error:** max depth exceeded\n', errors: ['max depth exceeded'] }
-  }
-
-  const source = String(text || '')
-  // process includes via regex replace (async not allowed in replace; collect first)
+  const source = String(sourceText || '')
   const matches = [...source.matchAll(INCLUDE_RE)]
-  if (matches.length === 0) return { text: source, errors }
+  if (matches.length === 0) return { text: source, includedPaths }
 
-  // We'll rebuild string manually to await reads
   let result = ''
   let lastIndex = 0
   for (const m of matches) {
     result += source.slice(lastIndex, m.index)
-    const href = m[1]
     lastIndex = m.index + m[0].length
+    const href = m[1]
     if (!isIncludeLink(href)) {
       result += m[0]
       continue
@@ -66,47 +65,49 @@ export async function loadTransclusion(text, baseDir, opts = {}) {
       result += m[0]
       continue
     }
+    const lineNo = source.slice(0, m.index).split('\n').length - 1
     if (visited.has(resolved)) {
-      const msg = 'cycle: ' + resolved
-      errors.push(msg)
-      result += '\n\n> **Transclusion error:** ' + msg + '\n\n'
+      result += '\n\n<div class="include-root" data-include-path="' + escapeHtml(resolved) + '" data-include-line="' + lineNo + '" data-include-error="cycle: ' + escapeHtml(resolved) + '">cycle: ' + escapeHtml(resolved) + '</div>\n\n'
       continue
     }
     if (depth + 1 > maxDepth) {
-      const msg = 'max depth exceeded: ' + resolved
-      errors.push(msg)
-      result += '\n\n> **Transclusion error:** ' + msg + '\n\n'
+      result += '\n\n<div class="include-root" data-include-path="' + escapeHtml(resolved) + '" data-include-line="' + lineNo + '" data-include-error="max depth exceeded: ' + escapeHtml(resolved) + '">max depth exceeded: ' + escapeHtml(resolved) + '</div>\n\n'
       continue
     }
     let content
     try {
       content = await readFileFn(resolved)
     } catch (e) {
-      const msg = 'could not read: ' + resolved
-      errors.push(msg)
-      result += '\n\n> **Transclusion error:** ' + msg + '\n\n'
+      result += '\n\n<div class="include-root" data-include-path="' + escapeHtml(resolved) + '" data-include-line="' + lineNo + '" data-include-error="could not read: ' + escapeHtml(resolved) + '">could not read: ' + escapeHtml(resolved) + '</div>\n\n'
       continue
     }
     if (content.length > maxBytes) {
-      const msg = 'file too large: ' + resolved
-      errors.push(msg)
-      result += '\n\n> **Transclusion error:** ' + msg + '\n\n'
+      result += '\n\n<div class="include-root" data-include-path="' + escapeHtml(resolved) + '" data-include-line="' + lineNo + '" data-include-error="file too large: ' + escapeHtml(resolved) + '">file too large: ' + escapeHtml(resolved) + '</div>\n\n'
       continue
     }
     const ext = (resolved.split('.').pop() || '').toLowerCase()
-    if (ext === 'mmd') content = '```mermaid\n' + content + '\n```'
+    const innerMd = ext === 'mmd' ? '```mermaid\n' + content + '\n```' : content
+    const nestedBaseDir = resolved.replace(/[^/\\]*$/, '') || ''
     const nestedVisited = new Set(visited)
     nestedVisited.add(resolved)
-    const nested = await loadTransclusion(content, (resolved.replace(/[^/\\]*$/, '') || ''), {
+    const nested = await renderTransclusions(md, innerMd, nestedBaseDir, {
       readFileFn,
       depth: depth + 1,
       visited: nestedVisited,
       maxDepth,
       maxBytes,
     })
-    errors.push(...nested.errors)
-    result += nested.text
+    includedPaths.push(resolved, ...nested.includedPaths)
+    const includedHtml = md.render(nested.text)
+    result += '\n\n<div class="include-root" data-include-path="' + escapeHtml(resolved) + '" data-include-line="' + lineNo + '">' + includedHtml + '</div>\n\n'
   }
   result += source.slice(lastIndex)
-  return { text: result, errors }
+  return { text: result, includedPaths }
+}
+
+// Back-compat text API
+export async function loadTransclusion(text, baseDir, opts = {}) {
+  const r = await renderTransclusions(null, text, baseDir, opts)
+  // if md not provided, just return text (no render) — keep for tests
+  return { text: r.text, errors: [] }
 }

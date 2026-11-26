@@ -7,7 +7,7 @@
   import { sanitizeHtml, renderDiagrams } from './lib/diagrams.js'
   import { THEMES, DEFAULT_THEME, applyTheme } from './lib/themes.js'
   import { transformCriticMarkup, wrapWithMarkers } from './lib/reviewTransforms.js'
-  import { loadTransclusion } from './lib/transclude.js'
+  import { renderTransclusions } from './lib/transclude.js'
   import { replaceOuterContent, removeOuter, insertReplyInside } from './lib/comments.js'
   import { getDefaults, findAction, mergeBindings } from './lib/keymap.js'
 
@@ -24,6 +24,8 @@
   let statusMessage = ''
   let linkError = null
   let fullscreenDiagramHtml = null
+  let currentIncludedPaths = []
+  let includedUnwatch = []
   let settingsOpen = false
   let settings = { autosave: true, autoReload: true, autosaveInterval: 2000 }
   // sidebar
@@ -115,8 +117,9 @@
     if (!md) md = createMarkdown()
     const baseDir = currentPath ? dirname(currentPath) : ''
     let expanded = source
+    let includedPaths = []
     try {
-      const r = await loadTransclusion(source, baseDir, {
+      const r = await renderTransclusions(md, source, baseDir, {
         readFileFn: async (p) => {
           try { return await readPath(p) } catch (e) {
             if (!isTauri()) {
@@ -129,7 +132,10 @@
         }
       })
       expanded = r.text
+      includedPaths = r.includedPaths || []
     } catch (e) { /* fall back to source */ }
+    currentIncludedPaths = includedPaths
+    await watchIncluded()
     const h = hashText(expanded)
     if (h === lastHash && html) return
     lastHash = h
@@ -170,7 +176,7 @@
   function getPreviewTopSourceLine() {
     if (!previewEl) return null
     const rect = previewEl.getBoundingClientRect()
-    const els = previewEl.querySelectorAll('[data-source-line]')
+    const els = Array.from(previewEl.querySelectorAll('[data-source-line]')).filter((el) => !el.closest('.include-root')).filter((el) => !el.closest('.include-root'))
     let best = null
     for (const el of els) {
       const r = el.getBoundingClientRect()
@@ -185,7 +191,7 @@
     if (!editorView || !previewEl) return
     const lineNo = editorView.state.doc.lineAt(editorView.viewport.from).number // 1-based
     const srcLine = lineNo - 1 // 0-based
-    const els = Array.from(previewEl.querySelectorAll('[data-source-line]'))
+    const els = Array.from(previewEl.querySelectorAll('[data-source-line]')).filter((el) => !el.closest('.include-root'))
     if (!els.length) return
     // find bracketing
     let lower = null, upper = null
@@ -226,7 +232,7 @@
   // sidebar helpers
   function findAnchorForLine(line) {
     if (!previewEl) return null
-    const els = Array.from(previewEl.querySelectorAll('[data-source-line]'))
+    const els = Array.from(previewEl.querySelectorAll('[data-source-line]')).filter((el) => !el.closest('.include-root'))
     let best = null
     for (const el of els) {
       const sl = parseInt(el.getAttribute('data-source-line'), 10)
@@ -359,6 +365,31 @@
       previewRafId = null
       syncPreviewToEditor()
     })
+  }
+
+  async function watchIncluded() {
+    for (const u of includedUnwatch) { try { await u() } catch {} }
+    includedUnwatch = []
+    if (!isTauri()) return
+    const dirs = new Set(currentIncludedPaths.map((p) => parentOf(p)))
+    for (const dir of dirs) {
+      try {
+        const { watch } = await import('@tauri-apps/plugin-fs')
+        const uw = await watch(dir, (event) => {
+          const paths = (event && (event.paths || (event.path && [event.path]))) || []
+          if (!paths.some((p) => currentIncludedPaths.some((ip) => String(p).endsWith(baseOf(ip))))) return
+          clearTimeout(debounceTimer)
+          debounceTimer = setTimeout(async () => {
+            if (!currentPath || saving || dirty) return
+            try {
+              lastHash = ''
+              await loadText(text)
+            } catch (e) { console.warn(e) }
+          }, 300)
+        }, { recursive: false, delayMs: 500 })
+        includedUnwatch.push(uw)
+      } catch (e) { console.warn(e) }
+    }
   }
 
   async function watchParent(path) {
@@ -622,6 +653,10 @@
     const ta = document.querySelector('.comment-text-input')
     if (ta) { ta.focus(); try { ta.selectionStart = ta.selectionEnd = ta.value.length } catch {} }
   }
+  function isIncludedComment(item) {
+    const el = item && (item.el || item.anchorEl)
+    return !!(el && typeof el.closest === 'function' && el.closest('.include-root'))
+  }
   function criticIndexFor(item) {
     const idx = commentItems.findIndex((c) => c.id === item.id)
     let ci = 0
@@ -631,6 +666,7 @@
     return Math.max(0, ci - 1)
   }
   async function saveEditComment(item) {
+    if (isIncludedComment(item)) { showStatus('included content is read-only — open that file to edit'); return }
     const newInner = editingCommentAuthor ? ('@' + editingCommentAuthor + ': ' + editingCommentText).trim() : editingCommentText.trim()
     const ci = criticIndexFor(item)
     const newText = replaceOuterContent(text, ci, newInner)
@@ -640,6 +676,7 @@
     cancelEditComment()
   }
   async function deleteComment(item) {
+    if (isIncludedComment(item)) { showStatus('included content is read-only — open that file to edit'); return }
     const ci = criticIndexFor(item)
     const newText = removeOuter(text, ci)
     if (newText !== text) {
@@ -648,6 +685,7 @@
     }
   }
   async function replyComment(item) {
+    if (isIncludedComment(item)) { showStatus('included content is read-only — open that file to edit'); return }
     const ci = criticIndexFor(item)
     const beforeIds = new Set(commentItems.map((c) => c.id))
     const newText = insertReplyInside(text, ci, '{>> <<}')
@@ -893,6 +931,12 @@
     }
     if (startBlock !== endBlock) {
       showStatus('select within one paragraph')
+      return
+    }
+    const includeRoot = startBlock ? startBlock.closest('.include-root') : null
+    if (includeRoot) {
+      showStatus('included from ' + (includeRoot.getAttribute('data-include-path') || '') + ' — open that file to edit')
+      sel.removeAllRanges()
       return
     }
 
