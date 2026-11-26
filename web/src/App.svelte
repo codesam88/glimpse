@@ -7,7 +7,7 @@
   import { sanitizeHtml, renderDiagrams } from './lib/diagrams.js'
   import { THEMES, DEFAULT_THEME, applyTheme } from './lib/themes.js'
   import { transformCriticMarkup, wrapWithMarkers } from './lib/reviewTransforms.js'
-  import { renderTransclusions } from './lib/transclude.js'
+  // transclude runtime uses fillIncludes (no text expansion)
   import { replaceOuterContent, removeOuter, insertReplyInside } from './lib/comments.js'
   import { getDefaults, findAction, mergeBindings } from './lib/keymap.js'
 
@@ -117,33 +117,18 @@
   async function loadText(source) {
     if (!md) md = createMarkdown()
     const baseDir = currentPath ? dirname(currentPath) : ''
-    let expanded = source
-    let includedPaths = []
-    try {
-      const r = await renderTransclusions(md, source, baseDir, {
-        readFileFn: async (p) => {
-          try { return await readPath(p) } catch (e) {
-            if (!isTauri()) {
-              const resp = await fetch(p)
-              if (!resp.ok) throw new Error('not found')
-              return await resp.text()
-            }
-            throw e
-          }
-        }
-      })
-      expanded = r.text
-      includedPaths = r.includedPaths || []
-    } catch (e) { /* fall back to source */ }
-    currentIncludedPaths = includedPaths
-    await watchIncluded()
-    const h = hashText(expanded)
+    const h = hashText(source)
     if (h === lastHash && html) return
     lastHash = h
-    html = sanitizeHtml(md.render(expanded))
+    html = sanitizeHtml(md.render(source))
     await tick()
     const root = document.querySelector('#rendered')
-    if (root && diagramsEnabled) await renderDiagrams(root)
+    if (root) {
+      if (diagramsEnabled) await renderDiagrams(root)
+      const included = await fillIncludes(root, 0, new Set(), baseDir)
+      currentIncludedPaths = included
+      await watchIncluded()
+    }
     refreshSidebar()
   }
 
@@ -737,9 +722,12 @@
     return leading + out.join('/')
   }
   function resolveLocalPath(href) {
+    return resolvePathAgainst(dirname(currentPath), href)
+  }
+  function resolvePathAgainst(baseDir, href) {
     const clean = String(href || '').split('#')[0].split('?')[0]
     if (clean.startsWith('/')) return normalizePath(clean)
-    const base = currentPath ? dirname(currentPath) : ''
+    const base = baseDir || ''
     return normalizePath((base ? base + '/' : '') + clean)
   }
   function validateMarkdownSource(src) {
@@ -759,9 +747,95 @@
       window.open(url, '_blank', 'noopener,noreferrer')
     }
   }
+  async function readFileForInclude(p) {
+    try { return await readPath(p) } catch (e) {
+      if (!isTauri()) {
+        const resp = await fetch(p)
+        if (!resp.ok) throw new Error('not found')
+        const txt = await resp.text()
+        if (txt.includes('<div id="app"') && !/# /.test(txt) && !txt.includes('```')) throw new Error('not found')
+        return txt
+      }
+      throw e
+    }
+  }
+
+  async function fillIncludes(root, depth, visited, baseDir) {
+    const collected = []
+    const placeholders = Array.from(root.querySelectorAll('.include-placeholder'))
+    for (const ph of placeholders) {
+      if (ph.dataset.filled === '1') continue
+      ph.dataset.filled = '1'
+      const rawPath = ph.getAttribute('data-include-path') || ''
+      let lineNo = ph.getAttribute('data-include-line') || '0'
+      if (!lineNo || lineNo === 'undefined' || lineNo === 'null') lineNo = '0'
+      const resolved = resolvePathAgainst(baseDir, rawPath)
+      const container = document.createElement('div')
+      container.className = 'include-root'
+      container.setAttribute('data-include-path', resolved)
+      container.setAttribute('data-include-line', lineNo)
+      const header = document.createElement('div')
+      header.className = 'include-header'
+      const pathSpan = document.createElement('span')
+      pathSpan.className = 'include-path'
+      pathSpan.textContent = '📄 ' + resolved
+      const btn = document.createElement('button')
+      btn.type = 'button'
+      btn.className = 'include-open'
+      btn.setAttribute('data-include-open', resolved)
+      btn.textContent = 'Open ↗'
+      header.appendChild(pathSpan)
+      header.appendChild(btn)
+      container.appendChild(header)
+
+      if (visited.has(resolved)) {
+        container.setAttribute('data-include-error', 'cycle: ' + resolved)
+        const msg = document.createElement('div')
+        msg.textContent = 'cycle: ' + resolved
+        container.appendChild(msg)
+      } else if (depth >= 5) {
+        container.setAttribute('data-include-error', 'max depth exceeded: ' + resolved)
+        const msg = document.createElement('div')
+        msg.textContent = 'max depth exceeded: ' + resolved
+        container.appendChild(msg)
+      } else {
+        let content = null
+        let err = null
+        try { content = await readFileForInclude(resolved) } catch (e) { err = e }
+        if (err) {
+          container.setAttribute('data-include-error', 'could not read: ' + resolved)
+          const msg = document.createElement('div')
+          msg.textContent = 'could not read: ' + resolved
+          container.appendChild(msg)
+        } else if (content.length > 512 * 1024) {
+          container.setAttribute('data-include-error', 'file too large: ' + resolved)
+          const msg = document.createElement('div')
+          msg.textContent = 'file too large: ' + resolved
+          container.appendChild(msg)
+        } else {
+          const ext = (resolved.split('.').pop() || '').toLowerCase()
+          const innerMd = ext === 'mmd' ? '```mermaid\n' + content + '\n```' : content
+          const nestedBaseDir = resolved.replace(/[^/\\\\]*$/, '') || ''
+          const nestedVisited = new Set(visited)
+          nestedVisited.add(resolved)
+          const innerHtml = md.render(innerMd)
+          const innerDiv = document.createElement('div')
+          innerDiv.innerHTML = sanitizeHtml(innerHtml)
+          const nestedIncluded = await fillIncludes(innerDiv, depth + 1, nestedVisited, nestedBaseDir)
+          collected.push(resolved, ...nestedIncluded)
+          while (innerDiv.firstChild) container.appendChild(innerDiv.firstChild)
+        }
+      }
+      if (!container.getAttribute('data-include-error')) collected.push(resolved)
+      ph.replaceWith(container)
+    }
+    // nested placeholders inside replaced containers already filled; but placeholders in root only
+    return collected
+  }
+
   async function handleLinkedDocument(resolved, src, renderOnly) {
     let finalSrc = src
-    if (renderOnly) finalSrc = '```mermaid\\n' + src + '\\n```'
+    if (renderOnly) finalSrc = '```mermaid\n' + src + '\n```'
     // mimic openPath but with provided text
     conflict = null
     ignoredDiskHash = null

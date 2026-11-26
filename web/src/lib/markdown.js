@@ -102,6 +102,51 @@ function linkEnhancePlugin(md) {
 }
 
 
+function includePlaceholderPlugin(md) {
+  md.inline.ruler.before('link', 'include_placeholder', (state, silent) => {
+    const pos = state.pos
+    if (state.src.charCodeAt(pos) !== 0x5B) return false
+    if (state.src.charCodeAt(pos + 1) !== 0x21) return false
+    const end = state.src.indexOf(']', pos + 2)
+    if (end < 0) return false
+    const content = state.src.slice(pos + 2, end).trim()
+    if (!content) return false
+    const ext = (content.split('.').pop() || '').toLowerCase()
+    if (!['md', 'markdown', 'mmd'].includes(ext)) return false
+    if (silent) return true
+    const token = state.push('html_inline', '', 0)
+    token.content = '<div class="include-placeholder" data-include-path="' + content.replace(/"/g, '&quot;') + '" data-include-line="' + state.line + '"></div>'
+    state.pos = end + 1
+    return true
+  })
+}
+
+function includeBlockPlugin(md) {
+  md.core.ruler.after('inline', 'include_block', (state) => {
+    const tokens = state.tokens
+    let i = 0
+    while (i < tokens.length) {
+      const tok = tokens[i]
+      if (tok.type !== 'paragraph_open') { i++; continue }
+      const inline = tokens[i + 1]
+      const close = tokens[i + 2]
+      if (!inline || inline.type !== 'inline' || !close || close.type !== 'paragraph_close') { i++; continue }
+      const children = inline.children || []
+      if (children.length !== 1 || children[0].type !== 'html_inline' || !String(children[0].content).includes('include-placeholder')) { i++; continue }
+      const line = (tok.map && tok.map[0] != null) ? tok.map[0] : (inline.content ? 0 : 0)
+      const html = children[0].content.replace(/data-include-line="[^"]*"/, 'data-include-line="' + line + '"')
+      // convert paragraph to html_block
+      tok.type = 'html_block'
+      tok.tag = ''
+      tok.content = html + '\n'
+      tok.children = []
+      // remove inline + close
+      tokens.splice(i + 1, 2)
+      i++
+    }
+  })
+}
+
 function headingIdPlugin(md) {
   md.core.ruler.after('source_line', 'heading_ids', (state) => {
     const slugger = new Slugger()
@@ -243,6 +288,8 @@ export function createMarkdown() {
 
   md.use(sourceLinePlugin)
   md.use(headingIdPlugin)
+  includePlaceholderPlugin(md)
+  includeBlockPlugin(md)
   linkEnhancePlugin(md)
   md.use(diagramPlugin)
 
