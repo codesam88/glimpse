@@ -19,6 +19,10 @@ on:
         description: Short distro label for names (e.g. trixie, ubuntu24)
         required: true
         type: string
+      version:
+        description: App version override (e.g. 1.2.3 or 1.2.3+head.abc1234); empty = config default
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -125,9 +129,15 @@ jobs:
       - name: Tauri build (${{ inputs.bundle }})
         working-directory: src-tauri
         shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
           source "$HOME/.cargo/env"
-          npx @tauri-apps/cli build --bundles ${{ inputs.bundle }}
+          CONFIG_ARGS=()
+          if [ -n "$VERSION" ]; then
+            CONFIG_ARGS+=(--config "{\"version\":\"$VERSION\"}")
+          fi
+          npx @tauri-apps/cli build --bundles ${{ inputs.bundle }} "${CONFIG_ARGS[@]}"
 
       - name: Record bundle artifacts
         run: |

@@ -87,36 +87,6 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  trixie-deb:
-    name: Trixie deb
-    uses: ./.github/workflows/build-deb.yml
-    with:
-      bundle: deb
-      image: debian:trixie-slim
-      distro-tag: trixie
-    permissions:
-      contents: read
+  # Packaging/publishing moved to release.yml (runs on main pushes = rolling
+  # releases, and on v* tags = real releases). Required checks follow there.
 
-  ubuntu24-deb:
-    name: Ubuntu 24.04 deb
-    # Min-glibc build: runs on Ubuntu 24.04 AND newer dev hosts (26.04+);
-    # used for rolling install testing/debugging alongside the Trixie floor.
-    uses: ./.github/workflows/build-deb.yml
-    with:
-      bundle: deb
-      image: ubuntu:24.04
-      distro-tag: ubuntu24
-    permissions:
-      contents: read
-
-  trixie-appimage:
-    name: Trixie appimage
-    # The ~100MB AppImage only builds on tags/manual; .deb builds every push.
-    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
-    uses: ./.github/workflows/build-deb.yml
-    with:
-      bundle: appimage
-      image: debian:trixie-slim
-      distro-tag: trixie
-    permissions:
-      contents: read

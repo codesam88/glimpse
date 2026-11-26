@@ -1,49 +1,92 @@
 name: Release
 
-# On version tags: build Trixie (floor) + Ubuntu 24.04 (min-glibc) bundles,
-# produce checksums, publish a GitHub Release with all artifacts attached.
+# Two flows, one pipeline:
+# - push tag v*   → real release "vX.Y.Z" (all bundles, checksums)
+# - push main     → rolling release, named after the last real tag:
+#                   "vX.Y.Z+head.<shortref>" (prerelease, replaces previous)
+#
+# The rolling tag is a single moving ref (`rolling`) force-updated to HEAD —
+# no tag spam per push. AppImage remains tag-only (it is the ~100MB bundle).
 
 on:
   push:
+    branches: [main]
     tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  deb:
+  setup:
+    name: Compute version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      is_tag: ${{ steps.v.outputs.is_tag }}
+    steps:
+      - name: Checkout (full history for tag resolution)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version
+        id: v
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+            echo "is_tag=true" >> "$GITHUB_OUTPUT"
+          else
+            base=$(git tag --list 'v[0-9]*' | sort -V | tail -1)
+            [ -n "$base" ] || base=v0.0.0
+            version="${base#v}+head.$(git rev-parse --short HEAD)"
+            echo "is_tag=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "resolved version: $version"
+
+  trixie-deb:
     name: Trixie deb
+    needs: setup
     uses: ./.github/workflows/build-deb.yml
     with:
       bundle: deb
       image: debian:trixie-slim
       distro-tag: trixie
+      version: ${{ needs.setup.outputs.version }}
     permissions:
       contents: read
 
   ubuntu24-deb:
     name: Ubuntu 24.04 deb
+    needs: setup
     uses: ./.github/workflows/build-deb.yml
     with:
       bundle: deb
       image: ubuntu:24.04
       distro-tag: ubuntu24
+      version: ${{ needs.setup.outputs.version }}
     permissions:
       contents: read
 
-  appimage:
+  trixie-appimage:
     name: Trixie appimage
+    needs: setup
+    if: needs.setup.outputs.is_tag == 'true' || github.event_name == 'workflow_dispatch'
     uses: ./.github/workflows/build-deb.yml
     with:
       bundle: appimage
       image: debian:trixie-slim
       distro-tag: trixie
+      version: ${{ needs.setup.outputs.version }}
     permissions:
       contents: read
 
-  release:
-    name: Publish release
-    needs: [deb, ubuntu24-deb, appimage]
+  collect:
+    name: Collect + checksums
+    needs: [setup, trixie-deb, ubuntu24-deb, trixie-appimage]
+    if: always() && !failure() && !cancelled() && (needs.setup.outputs.is_tag == 'true' || needs.trixie-deb.result == 'success')
     runs-on: ubuntu-latest
     steps:
       - name: Download bundles
@@ -52,14 +95,16 @@ jobs:
           path: dist
           pattern: glimpse-*
 
-      - name: Rename debs per distro (same filename from both builds)
+      - name: Rename with version (both debs share a filename)
         shell: bash
+        env:
+          VERSION: ${{ needs.setup.outputs.version }}
         run: |
           mkdir -p out
           ls -la dist/*/
-          [ -d dist/glimpse-trixie-deb ] && mv dist/glimpse-trixie-deb/*.deb "out/glimpse-${GITHUB_REF_NAME}-trixie_amd64.deb"
-          [ -d dist/glimpse-ubuntu24-deb ] && mv dist/glimpse-ubuntu24-deb/*.deb "out/glimpse-${GITHUB_REF_NAME}-ubuntu24.04_amd64.deb"
-          [ -d dist/glimpse-trixie-appimage ] && mv dist/glimpse-trixie-appimage/*.AppImage "out/glimpse-${GITHUB_REF_NAME}-trixie_amd64.AppImage"
+          [ -d dist/glimpse-trixie-deb ] && mv dist/glimpse-trixie-deb/*.deb "out/glimpse-v${VERSION}-trixie_amd64.deb"
+          [ -d dist/glimpse-ubuntu24-deb ] && mv dist/glimpse-ubuntu24-deb/*.deb "out/glimpse-v${VERSION}-ubuntu24.04_amd64.deb"
+          [ -d dist/glimpse-trixie-appimage ] && mv dist/glimpse-trixie-appimage/*.AppImage "out/glimpse-v${VERSION}-trixie_amd64.AppImage"
           ls -la out/
 
       - name: Checksums
@@ -68,15 +113,50 @@ jobs:
           sha256sum -- ./*.deb ./*.AppImage > sha256sums.txt
           cat sha256sums.txt
 
-      - name: Publish GitHub Release
+      - name: Upload combined artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-bundles
+          path: out/*
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: ${{ needs.setup.outputs.is_tag == 'true' && 'Publish release' || 'Publish rolling release' }}
+    needs: [setup, collect]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.setup.outputs.version }}
+      IS_TAG: ${{ needs.setup.outputs.is_tag }}
+    steps:
+      - name: Download collected bundles
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-bundles
+          path: out
+
+      - name: Publish real release (tag)
+        if: env.IS_TAG == 'true'
         working-directory: out
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
         run: |
-          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
-            --title "Glimpse $TAG" \
+          gh release create "v${VERSION}" --repo "$GITHUB_REPOSITORY" \
+            --title "Glimpse v${VERSION}" \
             --notes "Trixie (Debian 13) floor + Ubuntu 24.04 min-glibc build. See sha256sums.txt for integrity." \
-            --verify-tag 2>/dev/null || gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber ./*.deb ./*.AppImage sha256sums.txt
-          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber ./*.deb ./*.AppImage sha256sums.txt
+            --verify-tag 2>/dev/null || true
+          gh release upload "v${VERSION}" --repo "$GITHUB_REPOSITORY" --clobber ./*.deb ./*.AppImage sha256sums.txt
+
+      - name: Publish rolling release (main HEAD)
+        if: env.IS_TAG != 'true'
+        working-directory: out
+        shell: bash
+        run: |
+          # single moving release: replace previous, tag recreated at HEAD
+          gh release delete "rolling" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "rolling" --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --title "Glimpse v${VERSION} (rolling)" \
+            --notes "Rolling build from main HEAD (${GITHUB_SHA}). Base: last released version. Unstable — for testing/debugging. See sha256sums.txt."
+          gh release upload "rolling" --repo "$GITHUB_REPOSITORY" --clobber ./*.deb sha256sums.txt
