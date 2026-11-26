@@ -110,7 +110,8 @@ jobs:
       - name: Checksums
         working-directory: out
         run: |
-          sha256sum -- ./*.deb $( [ -f ./*.AppImage ] && echo ./*.AppImage ) > sha256sums.txt
+          sha256sum -- ./*.deb > sha256sums.txt
+          ls ./*.AppImage >/dev/null 2>&1 && sha256sum -- ./*.AppImage >> sha256sums.txt
           cat sha256sums.txt
 
       - name: Upload combined artifact
