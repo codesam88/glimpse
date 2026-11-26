@@ -24,6 +24,7 @@
   let statusMessage = ''
   let linkError = null
   let fullscreenDiagramHtml = null
+  let includeOpenPath = null
   let currentIncludedPaths = []
   let includedUnwatch = []
   let settingsOpen = false
@@ -666,7 +667,13 @@
     return Math.max(0, ci - 1)
   }
   async function saveEditComment(item) {
-    if (isIncludedComment(item)) { showStatus('included content is read-only — open that file to edit'); return }
+    if (isIncludedComment(item)) {
+      const el = item.el || item.anchorEl
+      const ir = el && typeof el.closest === 'function' ? el.closest('.include-root') : null
+      includeOpenPath = ir ? (ir.getAttribute('data-include-path') || null) : includeOpenPath
+      showStatus('included from ' + (includeOpenPath || '') + ' — open that file to edit')
+      return
+    }
     const newInner = editingCommentAuthor ? ('@' + editingCommentAuthor + ': ' + editingCommentText).trim() : editingCommentText.trim()
     const ci = criticIndexFor(item)
     const newText = replaceOuterContent(text, ci, newInner)
@@ -676,7 +683,13 @@
     cancelEditComment()
   }
   async function deleteComment(item) {
-    if (isIncludedComment(item)) { showStatus('included content is read-only — open that file to edit'); return }
+    if (isIncludedComment(item)) {
+      const el = item.el || item.anchorEl
+      const ir = el && typeof el.closest === 'function' ? el.closest('.include-root') : null
+      includeOpenPath = ir ? (ir.getAttribute('data-include-path') || null) : includeOpenPath
+      showStatus('included from ' + (includeOpenPath || '') + ' — open that file to edit')
+      return
+    }
     const ci = criticIndexFor(item)
     const newText = removeOuter(text, ci)
     if (newText !== text) {
@@ -685,7 +698,13 @@
     }
   }
   async function replyComment(item) {
-    if (isIncludedComment(item)) { showStatus('included content is read-only — open that file to edit'); return }
+    if (isIncludedComment(item)) {
+      const el = item.el || item.anchorEl
+      const ir = el && typeof el.closest === 'function' ? el.closest('.include-root') : null
+      includeOpenPath = ir ? (ir.getAttribute('data-include-path') || null) : includeOpenPath
+      showStatus('included from ' + (includeOpenPath || '') + ' — open that file to edit')
+      return
+    }
     const ci = criticIndexFor(item)
     const beforeIds = new Set(commentItems.map((c) => c.id))
     const newText = insertReplyInside(text, ci, '{>> <<}')
@@ -702,7 +721,10 @@
   }
 
   function dirname(p) {
-    return String(p || '').replace(/[\\\\/][^\\\\/]*$/, '')
+    const s = String(p || '')
+    const i = Math.max(s.lastIndexOf('/'), s.lastIndexOf('\\\\'))
+    if (i < 0) return ''
+    return s.slice(0, i)
   }
   function normalizePath(p) {
     const leading = String(p || '').startsWith('/') ? '/' : ''
@@ -778,7 +800,25 @@
     try { document.body.style.overflow = '' } catch {}
   }
 
+  async function openIncludedPath(rawPath) {
+    const resolved = resolveLocalPath(rawPath)
+    includeOpenPath = null
+    if (!isTauri()) {
+      showStatus('open locally')
+      return
+    }
+    await openPath(resolved, false)
+  }
+
   async function handlePreviewClick(e) {
+    const includeBtn = e.target && typeof e.target.closest === 'function' ? e.target.closest('[data-include-open]') : null
+    if (includeBtn) {
+      e.preventDefault()
+      e.stopPropagation()
+      const raw = includeBtn.getAttribute('data-include-open') || ''
+      await openIncludedPath(raw)
+      return
+    }
     const ctrl = e.target && typeof e.target.closest === 'function' ? e.target.closest('[data-diagram-action]') : null
     if (ctrl) {
       e.preventDefault()
@@ -935,6 +975,7 @@
     }
     const includeRoot = startBlock ? startBlock.closest('.include-root') : null
     if (includeRoot) {
+      includeOpenPath = includeRoot.getAttribute('data-include-path') || null
       showStatus('included from ' + (includeRoot.getAttribute('data-include-path') || '') + ' — open that file to edit')
       sel.removeAllRanges()
       return
@@ -1504,6 +1545,13 @@
     <button on:click={() => (linkError = null)}>Dismiss</button>
   </div>
 {/if}
+{#if includeOpenPath}
+  <div class="conflict-banner" role="status">
+    <span>included from {includeOpenPath} — read-only in parent</span>
+    <button on:click={() => openIncludedPath(includeOpenPath)}>Open ↗</button>
+    <button on:click={() => (includeOpenPath = null)}>Dismiss</button>
+  </div>
+{/if}
 {#if externalChange}
   <div class="conflict-banner" role="status">
     <span>File changed on disk.</span>
@@ -1692,6 +1740,9 @@
   .conflict-banner { display: flex; gap: 0.5rem; align-items: center; padding: 0.5rem 0.75rem; margin-bottom: 0.5rem; background: #fff3cd; color: #664d03; border: 1px solid #ffecb5; border-radius: 4px; }
   .link-error-card { display: flex; gap: 0.5rem; align-items: center; padding: 0.5rem 0.75rem; margin-bottom: 0.5rem; background: #f8d7da; color: #721c24; border: 1px solid #f5c2c7; border-radius: 4px; }
   .link-error-card button { padding: 0.2rem 0.5rem; border: 1px solid #f5c2c7; border-radius: 4px; background: #fff; color: #721c24; cursor: pointer; }
+  :global(.include-header) { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.25rem 0.5rem; margin-bottom: 0.25rem; background: var(--app-toolbar-bg); border-bottom: 1px solid var(--app-border); font-size: 0.75rem; color: var(--app-fg); }
+  :global(.include-path) { opacity: 0.8; }
+  :global(.include-open) { border: 1px solid var(--app-border); border-radius: 4px; background: var(--app-bg); color: var(--app-fg); cursor: pointer; padding: 0.1rem 0.4rem; font-size: 0.7rem; }
   :global(.heading-flash) { background: rgba(255, 235, 59, 0.45); transition: background 1.2s ease; }
   .toolbar button span.active { font-weight: 700; text-decoration: underline; }
   .pane { overflow: hidden; min-width: 0; min-height: 0; }

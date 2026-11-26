@@ -67,22 +67,22 @@ export async function renderTransclusions(md, sourceText, baseDir, opts = {}) {
     }
     const lineNo = source.slice(0, m.index).split('\n').length - 1
     if (visited.has(resolved)) {
-      result += '\n\n<div class="include-root" data-include-path="' + escapeHtml(resolved) + '" data-include-line="' + lineNo + '" data-include-error="cycle: ' + escapeHtml(resolved) + '">cycle: ' + escapeHtml(resolved) + '</div>\n\n'
+      result += '\n\n<div class="include-root" data-include-path="' + escapeHtml(resolved) + '" data-include-line="' + lineNo + '" data-include-error="cycle: ' + escapeHtml(resolved) + '"><div class="include-header"><span class="include-path">📄 ' + escapeHtml(resolved) + '</span><button type="button" class="include-open" data-include-open="' + escapeHtml(resolved) + '">Open ↗</button></div>cycle: ' + escapeHtml(resolved) + '</div>\n\n'
       continue
     }
     if (depth + 1 > maxDepth) {
-      result += '\n\n<div class="include-root" data-include-path="' + escapeHtml(resolved) + '" data-include-line="' + lineNo + '" data-include-error="max depth exceeded: ' + escapeHtml(resolved) + '">max depth exceeded: ' + escapeHtml(resolved) + '</div>\n\n'
+      result += '\n\n<div class="include-root" data-include-path="' + escapeHtml(resolved) + '" data-include-line="' + lineNo + '" data-include-error="max depth exceeded: ' + escapeHtml(resolved) + '"><div class="include-header"><span class="include-path">📄 ' + escapeHtml(resolved) + '</span><button type="button" class="include-open" data-include-open="' + escapeHtml(resolved) + '">Open ↗</button></div>max depth exceeded: ' + escapeHtml(resolved) + '</div>\n\n'
       continue
     }
     let content
     try {
       content = await readFileFn(resolved)
     } catch (e) {
-      result += '\n\n<div class="include-root" data-include-path="' + escapeHtml(resolved) + '" data-include-line="' + lineNo + '" data-include-error="could not read: ' + escapeHtml(resolved) + '">could not read: ' + escapeHtml(resolved) + '</div>\n\n'
+      result += '\n\n<div class="include-root" data-include-path="' + escapeHtml(resolved) + '" data-include-line="' + lineNo + '" data-include-error="could not read: ' + escapeHtml(resolved) + '"><div class="include-header"><span class="include-path">📄 ' + escapeHtml(resolved) + '</span><button type="button" class="include-open" data-include-open="' + escapeHtml(resolved) + '">Open ↗</button></div>could not read: ' + escapeHtml(resolved) + '</div>\n\n'
       continue
     }
     if (content.length > maxBytes) {
-      result += '\n\n<div class="include-root" data-include-path="' + escapeHtml(resolved) + '" data-include-line="' + lineNo + '" data-include-error="file too large: ' + escapeHtml(resolved) + '">file too large: ' + escapeHtml(resolved) + '</div>\n\n'
+      result += '\n\n<div class="include-root" data-include-path="' + escapeHtml(resolved) + '" data-include-line="' + lineNo + '" data-include-error="file too large: ' + escapeHtml(resolved) + '"><div class="include-header"><span class="include-path">📄 ' + escapeHtml(resolved) + '</span><button type="button" class="include-open" data-include-open="' + escapeHtml(resolved) + '">Open ↗</button></div>file too large: ' + escapeHtml(resolved) + '</div>\n\n'
       continue
     }
     const ext = (resolved.split('.').pop() || '').toLowerCase()
@@ -99,7 +99,8 @@ export async function renderTransclusions(md, sourceText, baseDir, opts = {}) {
     })
     includedPaths.push(resolved, ...nested.includedPaths)
     const includedHtml = md.render(nested.text)
-    result += '\n\n<div class="include-root" data-include-path="' + escapeHtml(resolved) + '" data-include-line="' + lineNo + '">' + includedHtml + '</div>\n\n'
+    const header = '<div class="include-header"><span class="include-path">📄 ' + escapeHtml(resolved) + '</span><button type="button" class="include-open" data-include-open="' + escapeHtml(resolved) + '">Open ↗</button></div>'
+    result += '\n\n<div class="include-root" data-include-path="' + escapeHtml(resolved) + '" data-include-line="' + lineNo + '">' + header + includedHtml + '</div>\n\n'
   }
   result += source.slice(lastIndex)
   return { text: result, includedPaths }
