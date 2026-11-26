@@ -125,6 +125,9 @@ jobs:
   publish:
     name: Publish
     needs: [setup, collect]
+    # always()+result-check: the skipped AppImage leg on main pushes must not
+    # skip-propagate through collect into this job (transitive needs skip).
+    if: always() && !failure() && !cancelled() && needs.setup.result == 'success' && needs.collect.result == 'success'
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
