@@ -30,7 +30,7 @@ compatibility guide.
 | Emoji shortcodes | `:smile:` | yes | no | **no (gap)** | not enabled |
 | GitHub alerts | `> [!NOTE]` | yes | no | **no (gap)** | not implemented |
 | CriticMarkup | `{++ ++}`, `{-- --}`, `{== ==}`, `{>> <<}`, `{~~ ~> ~~}` | no | no | yes (Glimpse) | review transforms |
-| Transclusion | `[path.md](path.md)` (raw link) | no | no | yes (Glimpse) | max depth 5, cycle detection |
+| Transclusion | `[!path.md]` or `[path.md]` (single-bracket forms embed) | no | no | yes (Glimpse) | single bracket = embed (`!` optional, Obsidian-style); labeled `[text](path.md)` = link |
 | Heading anchors | `{#id}` | no | yes | yes | pandoc subset |
 | Diagrams | fenced mermaid/plantuml/etc. | no | no | yes (Glimpse) | rendered client-side |
 | Frontmatter | `---` YAML | no | yes | stripped (not rendered) | gray-matter |

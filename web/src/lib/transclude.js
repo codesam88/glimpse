@@ -36,7 +36,7 @@ function escapeHtml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
-const INCLUDE_RE = /\[([^\]]+)\]\(\1\)/g
+const INCLUDE_RE = /\[!?([^\]]+)\]/g
 
 export async function renderTransclusions(md, sourceText, baseDir, opts = {}) {
   const readFileFn = opts.readFileFn || (async () => { throw new Error('no reader') })

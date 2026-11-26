@@ -110,4 +110,8 @@ After.
 
 Included from sibling file (read-only in this view):
 
-[target.md](target.md)
+[!target.md]
+
+Labeled single-bracket (now embeds too): [target.md]
+
+Labeled link: [open target](target.md)

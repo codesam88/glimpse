@@ -101,6 +101,7 @@ function linkEnhancePlugin(md) {
   })
 }
 
+
 function headingIdPlugin(md) {
   md.core.ruler.after('source_line', 'heading_ids', (state) => {
     const slugger = new Slugger()
