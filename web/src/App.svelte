@@ -4,7 +4,8 @@
   import { markdown } from '@codemirror/lang-markdown'
   import { createMarkdown } from './lib/markdown.js'
   import { EditorView } from '@codemirror/view'
-  import { sanitizeHtml, renderDiagrams } from './lib/diagrams.js'
+  import { sanitizeHtml, renderDiagrams, setDiagramTypeEnabled } from './lib/diagrams.js'
+  import { setIncludeEmbedMode } from './lib/markdown.js'
   import { THEMES, DEFAULT_THEME, applyTheme } from './lib/themes.js'
   import { transformCriticMarkup, wrapWithMarkers } from './lib/reviewTransforms.js'
   // transclude runtime uses fillIncludes (no text expansion)
@@ -31,8 +32,7 @@
   let currentIncludedPaths = []
   let includedUnwatch = []
   let settingsOpen = false
-  let settings = { autosave: true, autoReload: true, autosaveInterval: 2000 }
-  // sidebar
+  let settings = { autosave: true, autoReload: true, autosaveInterval: 2000, diagramTypes: { mermaid: true, plantuml: true, dot: true, wavedrom: true, nomnoml: true }, embedLinkedMarkdown: true }  // sidebar
   let sidebarOpen = true
   let sidebarTab = 'outline'
   // Debug-only toolbar controls. Enable by visiting any URL with ?debug=1
@@ -53,6 +53,13 @@
   let activeCommentId = null
   let currentPath = ''
   let unwatch = null
+  // navigation history
+  let navHistory = []
+  let navIndex = -1
+  // review undo/redo
+  let undoStack = []
+  let redoStack = []
+  let undoing = false
   let debounceTimer = null
   let lastHash = ''
   let storeHandle = null
@@ -428,8 +435,19 @@
     }
   }
 
-  async function openPath(path, preserveScroll = false) {
-    if (!path) return
+  async function openPath(path, preserveScroll = false, fromNav = false) {
+    if (!path) return false
+    const prevPath = currentPath
+    // dirty guard for switching to a different document
+    if (dirty && path !== currentPath && path !== '') {
+      try {
+        const t = await readPath(path)
+        conflict = { diskText: t, diskHash: hashText(t), path, navigation: true }
+      } catch (e) {
+        error = String(e)
+      }
+      return false
+    }
     conflict = null
     ignoredDiskHash = null
     loading = true
@@ -437,7 +455,15 @@
     const prevScroll = preserveScroll ? (previewEl ? previewEl.scrollTop : 0) : 0
     const prevEditorScroll = preserveScroll ? (editorView ? editorView.scrollDOM.scrollTop : 0) : 0
     try {
-      const t = await readPath(path)
+      let t
+      try { t = await readPath(path) }
+      catch (e) {
+        if (!isTauri()) {
+          const r = await fetch(path)
+          if (!r.ok) throw e
+          t = await r.text()
+        } else throw e
+      }
       loadingFile = true
       currentPath = path
       text = t
@@ -454,10 +480,27 @@
         })
       }
       await watchParent(path)
+      // history push
+      if (!fromNav && path && path !== prevPath) {
+        if (navIndex < navHistory.length - 1) navHistory = navHistory.slice(0, navIndex + 1)
+        if (navHistory.length === 0 || navHistory[navHistory.length - 1] !== path) {
+          navHistory.push(path)
+          if (navHistory.length > 50) { navHistory.shift() }
+          navHistory = [...navHistory]
+        }
+        navIndex = navHistory.length - 1
+      }
+      // clear undo/redo on doc switch
+      if (path !== prevPath) {
+        undoStack = []
+        redoStack = []
+      }
+      return true
     } catch (e) {
       error = String(e)
       html = ''
       lastHash = ''
+      return false
     } finally {
       loadingFile = false
       loading = false
@@ -469,6 +512,7 @@
     error = ''
     try {
       const r = await fetch('/fixture.md')
+      currentPath = 'fixture.md'
       if (!r.ok) throw new Error('fixture not found (' + r.status + ')')
       const t = await r.text()
       loadingFile = true
@@ -476,6 +520,8 @@
       lastHash = ''
       await loadText(t)
       loadingFile = false
+      navHistory = ['fixture.md']
+      navIndex = 0
     } catch (e) {
       error = String(e)
     } finally {
@@ -489,6 +535,7 @@
     error = ''
     try {
       const r = await fetch('/fixture-review.md')
+      currentPath = 'fixture-review.md'
       if (!r.ok) throw new Error('review fixture not found (' + r.status + ')')
       const t = await r.text()
       loadingFile = true
@@ -496,6 +543,8 @@
       lastHash = ''
       await loadText(t)
       loadingFile = false
+      navHistory = ['fixture-review.md']
+      navIndex = 0
     } catch (e) {
       error = String(e)
     } finally {
@@ -518,6 +567,16 @@
       await loadText(t)
       loadingFile = false
       dirty = false
+      const p = f.name
+      if (navHistory.length === 0 || navHistory[navHistory.length - 1] !== p) {
+        if (navIndex < navHistory.length - 1) navHistory = navHistory.slice(0, navIndex + 1)
+        navHistory.push(p)
+        if (navHistory.length > 50) navHistory.shift()
+        navHistory = [...navHistory]
+        navIndex = navHistory.length - 1
+      }
+      undoStack = []
+      redoStack = []
     } catch (err) {
       error = String(err)
     } finally {
@@ -574,7 +633,28 @@
       await getCurrentWindow().close()
     } catch (e) { error = String(e) }
   }
+  function pushUndo(prevText, nextText) {
+    if (undoing) return
+    if (prevText === nextText) return
+    undoStack.push({ prevText, nextText })
+    if (undoStack.length > 100) undoStack.shift()
+    redoStack = []
+  }
+
   async function applyTransformedText(newText) {
+    if (newText === text) return
+    const prev = text
+    loadingFile = true
+    text = newText
+    lastHash = ''
+    await loadText(newText)
+    loadingFile = false
+    dirty = true
+    scheduleAutosave()
+    pushUndo(prev, newText)
+  }
+
+  async function setReviewText(newText) {
     if (newText === text) return
     loadingFile = true
     text = newText
@@ -585,7 +665,25 @@
     scheduleAutosave()
   }
 
-  function wrapSelection(kind) {
+  async function undoReview() {
+    if (undoStack.length === 0) return
+    const entry = undoStack.pop()
+    redoStack.push(entry)
+    undoing = true
+    await setReviewText(entry.prevText)
+    undoing = false
+  }
+
+  async function redoReview() {
+    if (redoStack.length === 0) return
+    const entry = redoStack.pop()
+    undoStack.push(entry)
+    undoing = true
+    await setReviewText(entry.nextText)
+    undoing = false
+  }
+
+  async function wrapSelection(kind) {
     if (!editorView) { showStatus('select text in the editor first'); return }
     const sel = editorView.state.selection.main
     const selected = editorView.state.sliceDoc(sel.from, sel.to)
@@ -593,6 +691,7 @@
       showStatus('select text in the editor first')
       return
     }
+    const prevText = text
     const replacement = wrapWithMarkers(selected, kind)
     const placeholder = ({ addition: 'added', deletion: 'removed', highlight: 'highlighted', comment: 'comment' })[kind] || 'text'
     editorView.dispatch({
@@ -601,6 +700,14 @@
         ? { anchor: sel.from + replacement.length }
         : { anchor: sel.from + (replacement.indexOf(placeholder) >= 0 ? replacement.indexOf(placeholder) : 0), head: sel.from + (replacement.indexOf(placeholder) >= 0 ? replacement.indexOf(placeholder) + placeholder.length : replacement.length) },
     })
+    await tick()
+    const newText = editorView ? editorView.state.doc.toString() : text
+    if (newText !== text) {
+      text = newText
+      dirty = true
+      scheduleAutosave()
+    }
+    pushUndo(prevText, newText)
   }
 
   function acceptAll() { applyTransformedText(transformCriticMarkup(text, 'accept')) }
@@ -859,8 +966,14 @@
   }
 
   async function handleLinkedDocument(resolved, src, renderOnly) {
+    const prevPath = currentPath
     let finalSrc = src
     if (renderOnly) finalSrc = '```mermaid\n' + src + '\n```'
+    // dirty guard
+    if (dirty && resolved !== currentPath) {
+      conflict = { diskText: finalSrc, diskHash: hashText(finalSrc), path: resolved, navigation: true }
+      return
+    }
     // mimic openPath but with provided text
     conflict = null
     ignoredDiskHash = null
@@ -876,6 +989,19 @@
       dirty = false
       lastSavedHash = null
       await watchParent(resolved)
+      if (resolved && resolved !== prevPath) {
+        if (navIndex < navHistory.length - 1) navHistory = navHistory.slice(0, navIndex + 1)
+        if (navHistory.length === 0 || navHistory[navHistory.length - 1] !== resolved) {
+          navHistory.push(resolved)
+          if (navHistory.length > 50) navHistory.shift()
+          navHistory = [...navHistory]
+        }
+        navIndex = navHistory.length - 1
+      }
+      if (resolved !== prevPath) {
+        undoStack = []
+        redoStack = []
+      }
     } catch (e) {
       error = String(e)
       html = ''
@@ -912,7 +1038,6 @@
   async function handlePreviewClick(e) {
     const includeBtn = e.target && typeof e.target.closest === 'function' ? e.target.closest('[data-include-open]') : null
     if (includeBtn) {
-      e.preventDefault()
       e.stopPropagation()
       const raw = includeBtn.getAttribute('data-include-open') || ''
       await openIncludedPath(raw)
@@ -934,7 +1059,6 @@
     if (!href) return
     e.preventDefault()
     e.stopPropagation()
-    linkError = null
 
     if (href.startsWith('#')) {
       const id = decodeURIComponent(href.slice(1))
@@ -1179,8 +1303,14 @@
   function persistSettings() {
     try { localStorage.setItem('settings', JSON.stringify(settings)) } catch {}
     persist('settings', settings)
+    applySettingsSideEffects()
+  }  function applySettingsSideEffects() {
+    try { setIncludeEmbedMode(settings.embedLinkedMarkdown !== false) } catch (e) {}
+    const dt = settings.diagramTypes || {}
+    for (const k of ['mermaid','plantuml','dot','wavedrom','nomnoml']) {
+      setDiagramTypeEnabled(k, dt[k] !== false)
+    }
   }
-
   function setSidebarTab(tab) {
     sidebarTab = tab
     persist('sidebarTab', tab)
@@ -1201,21 +1331,56 @@
   async function reloadFromDisk() {
     if (!conflict) return
     const newText = conflict.diskText
+    const targetPath = conflict.path
+    const wasNav = !!conflict.navigation
     ignoredDiskHash = null
     conflict = null
     loadingFile = true
+    if (targetPath && targetPath !== currentPath) {
+      currentPath = targetPath
+      await watchParent(targetPath)
+    }
     text = newText
     lastHash = ''
     await loadText(newText)
     loadingFile = false
     dirty = false
     lastSavedHash = null
+    // if this was a navigation, advance history index now
+    if (wasNav && targetPath) {
+      const idx = navHistory.indexOf(targetPath)
+      if (idx >= 0) navIndex = idx
+      else {
+        navHistory.push(targetPath)
+        if (navHistory.length > 50) navHistory.shift()
+        navHistory = [...navHistory]
+        navIndex = navHistory.length - 1
+      }
+      undoStack = []
+      redoStack = []
+    }
   }
 
   function keepEditing() {
     if (!conflict) return
     ignoredDiskHash = conflict.diskHash
     conflict = null
+  }
+
+  async function navBack() {
+    if (navIndex <= 0) return
+    const target = navHistory[navIndex - 1]
+    const ok = await openPath(target, false, true)
+    if (ok) navIndex--
+    navHistory = [...navHistory]
+  }
+
+  async function navForward() {
+    if (navIndex >= navHistory.length - 1) return
+    const target = navHistory[navIndex + 1]
+    const ok = await openPath(target, false, true)
+    if (ok) navIndex++
+    navHistory = [...navHistory]
   }
 
   function applyZoom() {
@@ -1251,14 +1416,24 @@
   async function toggleDiagrams() {
     diagramsEnabled = !diagramsEnabled
     const root = document.querySelector('#rendered')
-    if (root && diagramsEnabled) {
+    if (root) {
       root.querySelectorAll('.diagram-placeholder').forEach((ph) => {
         ph.dataset.rendered = ''
         ph.innerHTML = ''
       })
-      await renderDiagrams(root)
+      if (diagramsEnabled) await renderDiagrams(root)
     }
     persist('diagramsEnabled', diagramsEnabled)
+  }
+
+  async function rerenderDiagrams() {
+    const root = document.querySelector('#rendered')
+    if (!root) return
+    root.querySelectorAll('.diagram-placeholder').forEach((ph) => {
+      ph.dataset.rendered = ''
+      ph.innerHTML = ''
+    })
+    if (diagramsEnabled) await renderDiagrams(root)
   }
 
   function startResize(e) {
@@ -1314,8 +1489,14 @@
         const raw = localStorage.getItem('settings')
         if (raw) {
           const p = JSON.parse(raw)
-          settings = { autosave: p.autosave !== false, autoReload: p.autoReload !== false, autosaveInterval: Number(p.autosaveInterval) || 2000 }
-        }
+          settings = {
+            autosave: p.autosave !== false,
+            autoReload: p.autoReload !== false,
+            autosaveInterval: Number(p.autosaveInterval) || 2000,
+            diagramTypes: { mermaid: true, plantuml: true, dot: true, wavedrom: true, nomnoml: true, ...(p.diagramTypes || {}) },
+            embedLinkedMarkdown: p.embedLinkedMarkdown !== false,
+          }
+          applySettingsSideEffects()        }
       } catch (e) {}
     } catch (e) { debugEnabled = false }
 
@@ -1371,7 +1552,8 @@
       'file.reload': reloadFile,
       'file.settings': () => { settingsOpen = true },
       'file.exit': exitApp,
-      'review.insert': () => wrapSelection('addition'),
+      'nav.back': navBack,
+      'nav.forward': navForward,      'review.insert': () => wrapSelection('addition'),
       'review.strike': () => wrapSelection('deletion'),
       'review.highlight': () => wrapSelection('highlight'),
       'review.comment': () => wrapSelection('comment'),
@@ -1379,9 +1561,8 @@
       'review.acceptSel': acceptSelection,
       'review.rejectAll': rejectAll,
       'review.rejectSel': rejectSelection,
-      'review.undo': () => showStatus('Undo not available yet'),
-      'review.redo': () => showStatus('Redo not available yet'),
-    })
+      'review.undo': undoReview,
+      'review.redo': redoReview,    })
     for (const t of THEMES) setRunner('theme.' + t.id, () => setTheme(t.id))
     const runAction = (actionId) => registryRunAction(actionId)
 
@@ -1390,6 +1571,8 @@
       if (!actionId) return
       const hasMod = e.ctrlKey || e.altKey || e.metaKey || e.shiftKey
       if (!hasMod && isEditable(e.target)) return
+      // app-level undo/redo only when not editing in CodeMirror (CM handles its own)
+      if ((actionId === 'review.undo' || actionId === 'review.redo') && isEditable(e.target)) return
       // always prevent default for bound combos to stop browser actions (print etc.)
       e.preventDefault()
       runAction(actionId)
@@ -1493,6 +1676,7 @@
       } catch (e) { console.warn(e) }
       applyTheme(theme)
       applyZoom()
+      applySettingsSideEffects()
     }
 
     await loadFixture()
@@ -1585,8 +1769,19 @@
     label="View"
     testId="menu-view"
     items={[
+      { id: 'nav.back', label: 'Back', icon: 'arrow-left', shortcut: getAction('nav.back').shortcut, disabled: navIndex <= 0, run: () => registryRunAction('nav.back') },
+      { id: 'nav.forward', label: 'Forward', icon: 'arrow-right', shortcut: getAction('nav.forward').shortcut, disabled: navIndex >= navHistory.length - 1, run: () => registryRunAction('nav.forward') },
+      { separator: true },
       { id: 'view.toggleSplit', label: `Split view${viewMode === 'split' ? ' (on)' : ''}`, icon: 'split', shortcut: getAction('view.toggleSplit').shortcut, run: () => registryRunAction('view.toggleSplit') },
       { id: 'view.diagrams', label: `Diagrams: ${diagramsEnabled ? 'on' : 'off'}`, icon: 'chart-bar', shortcut: getAction('view.diagrams').shortcut, run: () => registryRunAction('view.diagrams') },
+      { separator: true },
+      { label: 'Mermaid', icon: 'chart-bar', checked: settings.diagramTypes.mermaid !== false, run: () => { settings.diagramTypes.mermaid = !(settings.diagramTypes.mermaid !== false); persistSettings(); rerenderDiagrams() } },
+      { label: 'PlantUML', icon: 'chart-bar', checked: settings.diagramTypes.plantuml !== false, run: () => { settings.diagramTypes.plantuml = !(settings.diagramTypes.plantuml !== false); persistSettings(); rerenderDiagrams() } },
+      { label: 'Graphviz/DOT', icon: 'chart-bar', checked: settings.diagramTypes.dot !== false, run: () => { settings.diagramTypes.dot = !(settings.diagramTypes.dot !== false); persistSettings(); rerenderDiagrams() } },
+      { label: 'WaveDrom', icon: 'chart-bar', checked: settings.diagramTypes.wavedrom !== false, run: () => { settings.diagramTypes.wavedrom = !(settings.diagramTypes.wavedrom !== false); persistSettings(); rerenderDiagrams() } },
+      { label: 'Nomnoml', icon: 'chart-bar', checked: settings.diagramTypes.nomnoml !== false, run: () => { settings.diagramTypes.nomnoml = !(settings.diagramTypes.nomnoml !== false); persistSettings(); rerenderDiagrams() } },
+      { separator: true },
+      { label: `Embed linked markdown: ${settings.embedLinkedMarkdown ? 'on' : 'off'}`, icon: 'split', checked: settings.embedLinkedMarkdown, run: () => { settings.embedLinkedMarkdown = !settings.embedLinkedMarkdown; persistSettings(); applySettingsSideEffects(); loadingFile = true; lastHash = ''; loadText(text).then(() => { loadingFile = false }) } },
       { separator: true },
       ...THEMES.map((t) => ({
         id: 'theme.' + t.id,
@@ -1603,6 +1798,9 @@
     label="Review"
     testId="menu-review"
     items={[
+      { id: 'review.undo', label: 'Undo', icon: 'undo', shortcut: getAction('review.undo').shortcut, run: () => registryRunAction('review.undo') },
+      { id: 'review.redo', label: 'Redo', icon: 'redo', shortcut: getAction('review.redo').shortcut, run: () => registryRunAction('review.redo') },
+      { separator: true },
       { id: 'review.insert', label: 'Insert', icon: 'plus', shortcut: getAction('review.insert').shortcut, run: () => registryRunAction('review.insert') },
       { id: 'review.strike', label: 'Strike', icon: 'format-strike', shortcut: getAction('review.strike').shortcut, run: () => registryRunAction('review.strike') },
       { id: 'review.highlight', label: 'Highlight', icon: 'format-highlight', shortcut: getAction('review.highlight').shortcut, run: () => registryRunAction('review.highlight') },
@@ -1612,9 +1810,6 @@
       { id: 'review.rejectSel', label: 'Reject sel', icon: 'format-strike', shortcut: getAction('review.rejectSel').shortcut, run: () => registryRunAction('review.rejectSel') },
       { id: 'review.acceptAll', label: 'Accept all', icon: 'plus', shortcut: getAction('review.acceptAll').shortcut, run: () => registryRunAction('review.acceptAll') },
       { id: 'review.rejectAll', label: 'Reject all', icon: 'format-strike', shortcut: getAction('review.rejectAll').shortcut, run: () => registryRunAction('review.rejectAll') },
-      { separator: true },
-      { id: 'review.undo', label: 'Undo', icon: 'undo', shortcut: getAction('review.undo').shortcut, run: () => registryRunAction('review.undo') },
-      { id: 'review.redo', label: 'Redo', icon: 'redo', shortcut: getAction('review.redo').shortcut, run: () => registryRunAction('review.redo') },
     ]}
   />
 
@@ -1656,6 +1851,20 @@
   {/if}
 
   <div class="toolbar-end">
+    <button
+      class="icon-btn"
+      data-testid="action-nav.back"
+      title={`Back${getAction('nav.back').shortcut?.length ? ' (' + getAction('nav.back').shortcut.join(' / ') + ')' : ''}`}
+      disabled={navIndex <= 0}
+      on:click={() => registryRunAction('nav.back')}
+    ><Icon name="arrow-left" size={16} /></button>
+    <button
+      class="icon-btn"
+      data-testid="action-nav.forward"
+      title={`Forward${getAction('nav.forward').shortcut?.length ? ' (' + getAction('nav.forward').shortcut.join(' / ') + ')' : ''}`}
+      disabled={navIndex >= navHistory.length - 1}
+      on:click={() => registryRunAction('nav.forward')}
+    ><Icon name="arrow-right" size={16} /></button>
     {#if currentPath}
       <span class="path" title={currentPath}>{currentPath}</span>
     {/if}
