@@ -102,6 +102,14 @@ function linkEnhancePlugin(md) {
 }
 
 
+let includeEmbedMode = true
+export function setIncludeEmbedMode(v) {
+  includeEmbedMode = !!v
+}
+export function getIncludeEmbedMode() {
+  return includeEmbedMode
+}
+
 function includePlaceholderPlugin(md) {
   // Single-bracket include forms: [!foo.md] (bang) and [foo.md] (bare) both
   // embed; labeled [text](foo.md) and reference-style [foo][bar] stay links.
@@ -121,6 +129,13 @@ function includePlaceholderPlugin(md) {
     const ext = (content.split('.').pop() || '').toLowerCase()
     if (!['md', 'markdown', 'mmd'].includes(ext)) return false
     if (silent) return true
+    if (!includeEmbedMode) {
+      const esc = content.replace(/"/g, '&quot;')
+      const token = state.push('html_inline', '', 0)
+      token.content = '<a href="' + esc + '" data-href="' + esc + '">' + content + '</a>'
+      state.pos = end + 1
+      return true
+    }
     const token = state.push('html_inline', '', 0)
     token.content = '<div class="include-placeholder" data-include-path="' + content.replace(/"/g, '&quot;') + '" data-include-line="' + state.line + '"></div>'
     state.pos = end + 1

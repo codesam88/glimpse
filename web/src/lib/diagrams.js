@@ -5,6 +5,34 @@ const SVG_PROFILE = { USE_PROFILES: { svg: true, svgFilters: true }, ALLOW_DATA_
 const HTML_PROFILE = { USE_PROFILES: { html: true, svg: true, svgFilters: true }, ALLOW_DATA_ATTR: true }
 
 const diagramCache = new Map()
+const disabledDiagramTypes = new Set()
+
+export function setDiagramTypeEnabled(type, enabled) {
+  if (enabled) disabledDiagramTypes.delete(type)
+  else disabledDiagramTypes.add(type)
+}
+
+export function isDiagramTypeEnabled(type) {
+  return !disabledDiagramTypes.has(type)
+}
+
+function normalizeDiagramType(lang) {
+  if (lang === 'plantuml' || lang === 'puml') return 'plantuml'
+  if (lang === 'dot' || lang === 'graphviz') return 'dot'
+  return lang
+}
+
+function renderDisabledDiagram(ph, code) {
+  const pre = document.createElement('pre')
+  const codeEl = document.createElement('code')
+  codeEl.textContent = code
+  pre.appendChild(codeEl)
+  const banner = document.createElement('div')
+  banner.className = 'ditaa-banner'
+  banner.textContent = 'This diagram type is disabled in settings (verbatim source shown).'
+  ph.appendChild(pre)
+  ph.appendChild(banner)
+}
 
 export function sanitizeHtml(html) {
   return DOMPurify.sanitize(html, HTML_PROFILE)
@@ -133,6 +161,10 @@ export async function renderDiagrams(root) {
     try { code = decodeCode(ph.dataset.code || '') } catch (e) { code = '' }
     const key = lang + '\\u0000' + currentThemeId() + '\\u0000' + code
     ph.dataset.rendered = '1'
+    if (!isDiagramTypeEnabled(normalizeDiagramType(lang))) {
+      renderDisabledDiagram(ph, code)
+      return
+    }
     if (diagramCache.has(key)) {
       ph.innerHTML = diagramCache.get(key)
     } else {
