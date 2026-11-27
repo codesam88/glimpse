@@ -33,6 +33,12 @@ export const DEFAULT_BINDINGS = {
   'file.save': ['Ctrl+s'],
   'file.open': ['Ctrl+o'],
   'file.reload': ['Ctrl+r', 'F5'],
+  'nav.back': ['Alt+Left'],
+  'nav.forward': ['Alt+Right'],
+  // App-level review undo/redo. These are suppressed when focus is in the
+  // CodeMirror editor so the editor's own undo/redo handles typing.
+  'review.undo': ['Ctrl+z'],
+  'review.redo': ['Ctrl+Shift+z', 'Ctrl+y'],
   'review.acceptSel': ['Ctrl+Alt+a'],
   'review.rejectSel': ['Ctrl+Alt+r'],
   'review.acceptAll': ['Ctrl+Shift+a'],
@@ -65,6 +71,10 @@ function normalizeKeyToken(token) {
   if (lower === 'wheelup') return 'WheelUp'
   if (lower === 'wheeldown') return 'WheelDown'
   if (lower === 'space') return ' '
+  if (lower === 'left' || lower === 'arrowleft') return 'ArrowLeft'
+  if (lower === 'right' || lower === 'arrowright') return 'ArrowRight'
+  if (lower === 'up' || lower === 'arrowup') return 'ArrowUp'
+  if (lower === 'down' || lower === 'arrowdown') return 'ArrowDown'
   if (lower === 'escape') return 'Escape'
   if (lower === 'enter' || lower === 'return') return 'Enter'
   if (lower === '=' || lower === 'equal' || lower === 'plus') return '='

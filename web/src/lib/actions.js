@@ -40,6 +40,8 @@ const META = {
   'debug.toggle': { label: 'Toggle debug', icon: 'bug' },
   'debug.forceToggle': { label: 'Force debug', icon: 'bug' },
 
+  'nav.back': { label: 'Back', icon: 'arrow-left' },
+  'nav.forward': { label: 'Forward', icon: 'arrow-right' },
   'file.open': { label: 'Open', icon: 'folder-open' },
   'file.save': { label: 'Save', icon: 'content-save' },
   'file.reload': { label: 'Reload', icon: 'refresh' },
