@@ -10,6 +10,9 @@
   // transclude runtime uses fillIncludes (no text expansion)
   import { replaceOuterContent, removeOuter, insertReplyInside } from './lib/comments.js'
   import { getDefaults, findAction, mergeBindings } from './lib/keymap.js'
+  import Icon from './lib/Icon.svelte'
+  import Menu from './lib/Menu.svelte'
+  import { setRunners, setRunner, runAction as registryRunAction, getAction } from './lib/actions.js'
 
   let html = ''
   let theme = DEFAULT_THEME
@@ -538,17 +541,39 @@
   }
 
   async function saveFile() {
-    if (!isTauri() || !currentPath) return
-    saving = true
-    try {
-      const { writeTextFile } = await import('@tauri-apps/plugin-fs')
-      lastSavedHash = hashText(text)
-      await writeTextFile(currentPath, text)
-      dirty = false
-    } catch (e) { error = String(e) }
-    finally { saving = false }
+    if (isTauri()) {
+      if (!currentPath) return
+      saving = true
+      try {
+        const { writeTextFile } = await import('@tauri-apps/plugin-fs')
+        lastSavedHash = hashText(text)
+        await writeTextFile(currentPath, text)
+        dirty = false
+      } catch (e) { error = String(e) }
+      finally { saving = false }
+      return
+    }
+    // browser mode: keep the dirty flow functional (no disk) by clearing dirty
+    lastSavedHash = hashText(text)
+    dirty = false
+    showStatus('saved')
   }
 
+  async function reloadFile() {
+    if (isTauri() && currentPath) {
+      await openPath(currentPath, false)
+      return
+    }
+    await loadFixture()
+  }
+
+  async function exitApp() {
+    if (!isTauri()) return
+    try {
+      const { getCurrentWindow } = await import('@tauri-apps/api/window')
+      await getCurrentWindow().close()
+    } catch (e) { error = String(e) }
+  }
   async function applyTransformedText(newText) {
     if (newText === text) return
     loadingFile = true
@@ -1320,44 +1345,45 @@
       return false
     }
 
-    const runAction = (actionId) => {
-      switch (actionId) {
-        case 'zoom.in': zoomIn(); break
-        case 'zoom.out': zoomOut(); break
-        case 'zoom.reset': resetZoom(); break
-        case 'view.toggleSplit': toggleViewMode(); break
-        case 'sidebar.toggle': toggleSidebar(); break
-        case 'sidebar.tabOutline': setSidebarTab('outline'); break
-        case 'sidebar.tabComments': setSidebarTab('comments'); break
-        case 'comments.toggleVisibility': toggleComments(); break
-        case 'review.highlightMode': reviewMode = 'highlight'; break
-        case 'review.noteMode':
-          reviewMode = 'note'
-          // force-open the sidebar on Comments so the destination is visible
-          // before the user clicks/marks text
-          sidebarOpen = true
-          setSidebarTab('comments')
-          persist('sidebarOpen', true)
-          break
-        case 'review.deleteMode': reviewMode = 'delete'; break
-        case 'debug.toggle':
-          if (debugEnabled) { debugEnabled = !debugEnabled; persist('debug', debugEnabled) }
-          break
-        case 'debug.forceToggle':
-          debugEnabled = true
-          persist('debug', true)
-          try { localStorage.setItem('debug', 'true') } catch {}
-          break
-        case 'file.save': saveFile(); break
-        case 'file.open':
-          {
-            const inp = document.querySelector('.file-label input')
-            if (inp) inp.click()
-          }
-          break
-        default: break
-      }
-    }
+    setRunners({
+      'zoom.in': zoomIn,
+      'zoom.out': zoomOut,
+      'zoom.reset': resetZoom,
+      'view.toggleSplit': toggleViewMode,
+      'view.split': toggleViewMode,
+      'view.diagrams': toggleDiagrams,
+      'sidebar.toggle': toggleSidebar,
+      'sidebar.tabOutline': () => setSidebarTab('outline'),
+      'sidebar.tabComments': () => setSidebarTab('comments'),
+      'comments.toggleVisibility': toggleComments,
+      'review.highlightMode': () => { reviewMode = 'highlight' },
+      'review.noteMode': () => {
+        reviewMode = 'note'
+        sidebarOpen = true
+        setSidebarTab('comments')
+        persist('sidebarOpen', true)
+      },
+      'review.deleteMode': () => { reviewMode = 'delete' },
+      'debug.toggle': () => { if (debugEnabled) { debugEnabled = !debugEnabled; persist('debug', debugEnabled) } },
+      'debug.forceToggle': () => { debugEnabled = true; persist('debug', true); try { localStorage.setItem('debug', 'true') } catch {} },
+      'file.save': saveFile,
+      'file.open': () => { const inp = document.querySelector('.file-label input'); if (inp) inp.click() },
+      'file.reload': reloadFile,
+      'file.settings': () => { settingsOpen = true },
+      'file.exit': exitApp,
+      'review.insert': () => wrapSelection('addition'),
+      'review.strike': () => wrapSelection('deletion'),
+      'review.highlight': () => wrapSelection('highlight'),
+      'review.comment': () => wrapSelection('comment'),
+      'review.acceptAll': acceptAll,
+      'review.acceptSel': acceptSelection,
+      'review.rejectAll': rejectAll,
+      'review.rejectSel': rejectSelection,
+      'review.undo': () => showStatus('Undo not available yet'),
+      'review.redo': () => showStatus('Redo not available yet'),
+    })
+    for (const t of THEMES) setRunner('theme.' + t.id, () => setTheme(t.id))
+    const runAction = (actionId) => registryRunAction(actionId)
 
     const handleGlobalKeyDown = (e) => {
       const actionId = findAction(bindings, e)
@@ -1517,26 +1543,108 @@
 
 <svelte:window on:keydown={onKeyDown} on:click={onGlobalClick} />
 
+<label class="file-label" style="display:none">
+  Open .md <input type="file" accept=".md,.markdown,.txt" on:change={onFile} />
+</label>
 <div class="toolbar" role="toolbar" aria-label="Main toolbar">
-  <div class="toolbar-group file-group">
-    <label class="file-label" title="Open a markdown file">
-      Open .md <input type="file" accept=".md,.markdown,.txt" on:change={onFile} />
-    </label>    {#if isTauri()}
-      <button on:click={() => openPath(currentPath || '', false)} disabled={!currentPath} title="Reload from disk">Reload</button>
-      <button on:click={saveFile} disabled={!currentPath || !dirty} title="Save file">Save{dirty ? ' *' : ''}</button>
-    {/if}
-  </div>
+  <Menu
+    label="File"
+    testId="menu-file"
+    items={[
+      { id: 'file.open', label: 'Open', icon: 'folder-open', shortcut: getAction('file.open').shortcut, run: () => registryRunAction('file.open') },
+      { id: 'file.save', label: 'Save', icon: 'content-save', shortcut: getAction('file.save').shortcut, disabled: isTauri() ? (!currentPath || !dirty) : !dirty, run: () => registryRunAction('file.save') },
+      { id: 'file.reload', label: 'Reload', icon: 'refresh', shortcut: getAction('file.reload').shortcut, run: () => registryRunAction('file.reload') },
+      { id: 'file.settings', label: 'Settings', icon: 'cog', shortcut: getAction('file.settings').shortcut, run: () => registryRunAction('file.settings') },
+      ...(isTauri() ? [{ id: 'file.exit', label: 'Exit', icon: 'exit-to-app', shortcut: getAction('file.exit').shortcut, run: () => registryRunAction('file.exit') }] : []),
+      ...(debugEnabled ? [
+        { separator: true },
+        { label: 'Load fixture', icon: 'refresh', run: () => { loadFixture() } },
+        { label: 'Load review fixture', icon: 'refresh', run: () => { loadReviewFixture() } },
+        { label: `Diagrams: ${diagramsEnabled ? 'on' : 'off'}`, icon: 'chart-bar', run: () => { toggleDiagrams() } },
+        { label: `Comments: ${hideComments ? 'hidden' : 'muted'}`, icon: 'comment', run: () => { toggleComments() } },
+      ] : []),
+    ]}
+  />
 
-  <div class="toolbar-group review-group">
-    <button on:click={() => wrapSelection('addition')} title={"Insertion — wraps selection in {++ ... ++}"}>Insert</button>
-    <button on:click={() => wrapSelection('deletion')} title={"Strikethrough — wraps selection in {-- ... --}"}>Strike</button>
-    <button on:click={() => wrapSelection('highlight')} title={"Highlight — wraps selection in {== ... ==}"}>Highlight</button>
-    <button on:click={() => wrapSelection('comment')} title={"Comment — wraps selection in {>> ... <<}"}>Comment</button>
-    <button on:click={acceptAll} title="Accept all changes">Accept all</button>
-    <button on:click={rejectAll} title="Reject all changes">Reject all</button>
-    <button on:click={acceptSelection} title="Accept selection">Accept sel</button>
-    <button on:click={rejectSelection} title="Reject selection">Reject sel</button>
-  </div>
+  <button
+    class="icon-btn"
+    data-testid="action-file.open"
+    title="Open"
+    on:click={() => registryRunAction('file.open')}
+  ><Icon name="folder-open" size={16} /></button>
+
+  <button
+    class="icon-btn"
+    data-testid="action-file.save"
+    title={`Save${getAction('file.save').shortcut?.length ? ' (' + getAction('file.save').shortcut.join(' / ') + ')' : ''}`}
+    disabled={isTauri() ? (!currentPath || !dirty) : !dirty}
+    on:click={() => registryRunAction('file.save')}
+  ><Icon name="content-save" size={16} />{dirty ? ' *' : ''}</button>
+
+  <Menu
+    label="View"
+    testId="menu-view"
+    items={[
+      { id: 'view.toggleSplit', label: `Split view${viewMode === 'split' ? ' (on)' : ''}`, icon: 'split', shortcut: getAction('view.toggleSplit').shortcut, run: () => registryRunAction('view.toggleSplit') },
+      { id: 'view.diagrams', label: `Diagrams: ${diagramsEnabled ? 'on' : 'off'}`, icon: 'chart-bar', shortcut: getAction('view.diagrams').shortcut, run: () => registryRunAction('view.diagrams') },
+      { separator: true },
+      ...THEMES.map((t) => ({
+        id: 'theme.' + t.id,
+        label: t.label,
+        icon: '',
+        checked: theme === t.id,
+        shortcut: [],
+        run: () => registryRunAction('theme.' + t.id),
+      })),
+    ]}
+  />
+
+  <Menu
+    label="Review"
+    testId="menu-review"
+    items={[
+      { id: 'review.insert', label: 'Insert', icon: 'plus', shortcut: getAction('review.insert').shortcut, run: () => registryRunAction('review.insert') },
+      { id: 'review.strike', label: 'Strike', icon: 'format-strike', shortcut: getAction('review.strike').shortcut, run: () => registryRunAction('review.strike') },
+      { id: 'review.highlight', label: 'Highlight', icon: 'format-highlight', shortcut: getAction('review.highlight').shortcut, run: () => registryRunAction('review.highlight') },
+      { id: 'review.comment', label: 'Comment', icon: 'comment', shortcut: getAction('review.comment').shortcut, run: () => registryRunAction('review.comment') },
+      { separator: true },
+      { id: 'review.acceptSel', label: 'Accept sel', icon: 'plus', shortcut: getAction('review.acceptSel').shortcut, run: () => registryRunAction('review.acceptSel') },
+      { id: 'review.rejectSel', label: 'Reject sel', icon: 'format-strike', shortcut: getAction('review.rejectSel').shortcut, run: () => registryRunAction('review.rejectSel') },
+      { id: 'review.acceptAll', label: 'Accept all', icon: 'plus', shortcut: getAction('review.acceptAll').shortcut, run: () => registryRunAction('review.acceptAll') },
+      { id: 'review.rejectAll', label: 'Reject all', icon: 'format-strike', shortcut: getAction('review.rejectAll').shortcut, run: () => registryRunAction('review.rejectAll') },
+      { separator: true },
+      { id: 'review.undo', label: 'Undo', icon: 'undo', shortcut: getAction('review.undo').shortcut, run: () => registryRunAction('review.undo') },
+      { id: 'review.redo', label: 'Redo', icon: 'redo', shortcut: getAction('review.redo').shortcut, run: () => registryRunAction('review.redo') },
+    ]}
+  />
+
+  <button
+    class="icon-btn"
+    data-testid="action-review.highlight"
+    title={`Highlight${getAction('review.highlight').shortcut?.length ? ' (' + getAction('review.highlight').shortcut.join(' / ') + ')' : ''}`}
+    on:click={() => registryRunAction('review.highlight')}
+  ><Icon name="format-highlight" size={16} /></button>
+
+  <button
+    class="icon-btn"
+    data-testid="action-review.strike"
+    title={`Strike${getAction('review.strike').shortcut?.length ? ' (' + getAction('review.strike').shortcut.join(' / ') + ')' : ''}`}
+    on:click={() => registryRunAction('review.strike')}
+  ><Icon name="format-strike" size={16} /></button>
+
+  <button
+    class="icon-btn"
+    data-testid="action-review.insert"
+    title={`Insert${getAction('review.insert').shortcut?.length ? ' (' + getAction('review.insert').shortcut.join(' / ') + ')' : ''}`}
+    on:click={() => registryRunAction('review.insert')}
+  ><Icon name="plus" size={16} /></button>
+
+  <button
+    class="icon-btn"
+    data-testid="action-review.comment"
+    title={`Comment${getAction('review.comment').shortcut?.length ? ' (' + getAction('review.comment').shortcut.join(' / ') + ')' : ''}`}
+    on:click={() => registryRunAction('review.comment')}
+  ><Icon name="comment" size={16} /></button>
 
   <div class="toolbar-spacer"></div>
 
@@ -1547,39 +1655,7 @@
     </span>
   {/if}
 
-  <div class="toolbar-group view-group">
-    <button on:click={toggleViewMode} data-testid="view-mode-toggle" aria-label="Toggle view mode" title="Toggle preview/split view">
-      View: <span class:active={viewMode === 'preview'}>Preview</span> / <span class:active={viewMode === 'split'}>Split</span>
-    </button>
-  </div>
-
-  <div class="toolbar-group theme-group">
-    <select class="theme-picker" value={theme} on:change={(e) => setTheme(e.currentTarget.value)} aria-label="Theme" title="Theme">
-      {#each THEMES as t (t.id)}
-        <option value={t.id}>{t.label}</option>
-      {/each}
-    </select>
-  </div>
-
-  {#if debugEnabled}
-    <details class="debug-menu" bind:this={debugMenuEl} on:toggle={() => (debugOpen = !!debugMenuEl?.open)}>
-      <summary class="debug-summary" aria-haspopup="menu" aria-expanded={debugOpen}>Debug</summary>
-      <div class="debug-popover" role="menu">
-        <button role="menuitem" on:click={() => { loadFixture(); closeDebugMenu() }}>Load fixture</button>
-        <button role="menuitem" on:click={() => { loadReviewFixture(); closeDebugMenu() }}>Load review fixture</button>
-        <button role="menuitem" on:click={() => { toggleDiagrams(); closeDebugMenu() }}>Diagrams: {diagramsEnabled ? 'on' : 'off'}</button>
-        <button role="menuitem" on:click={() => { toggleComments(); closeDebugMenu() }}>Comments: {hideComments ? 'hidden' : 'muted'}</button>
-      </div>
-    </details>
-  {/if}
-
   <div class="toolbar-end">
-    <button class="settings-btn" data-testid="settings-toggle" on:click={() => (settingsOpen = true)} title="Settings">⚙</button>
-    <div class="zoom-stepper" role="group" aria-label="Zoom">
-      <button on:click={zoomOut} disabled={zoom <= 0.5} title="Zoom out">−</button>
-      <button class="zoom-pct" on:click={resetZoom} title="Reset zoom to 100%">{Math.round(zoom * 100)}%</button>
-      <button on:click={zoomIn} disabled={zoom >= 3} title="Zoom in">+</button>
-    </div>
     {#if currentPath}
       <span class="path" title={currentPath}>{currentPath}</span>
     {/if}
@@ -1589,6 +1665,11 @@
     {#if statusMessage}
       <span class="status">{statusMessage}</span>
     {/if}
+    <div class="zoom-stepper" role="group" aria-label="Zoom">
+      <button on:click={zoomOut} disabled={zoom <= 0.5} title="Zoom out">−</button>
+      <button class="zoom-pct" on:click={resetZoom} title="Reset zoom to 100%">{Math.round(zoom * 100)}%</button>
+      <button on:click={zoomIn} disabled={zoom >= 3} title="Zoom in">+</button>
+    </div>
     <button
       class="sidebar-icon-btn"
       on:click={toggleSidebar}
@@ -1769,14 +1850,15 @@
 {/if}
 
 <style>
-  .toolbar { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; flex-wrap: wrap; align-items: center; position: sticky; top: 0; z-index: 50; background: var(--app-toolbar-bg); padding: 0.5rem 0.75rem; border-radius: 6px; border: 1px solid var(--app-border); box-shadow: 0 2px 8px rgba(0,0,0,0.12); }
-  .toolbar button, .toolbar .file-label, .toolbar .theme-picker { height: 32px; padding: 0 0.7rem; border: 1px solid var(--app-border); border-radius: 4px; background: var(--app-bg); color: var(--app-fg); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font-size: 0.85rem; line-height: 1; box-sizing: border-box; }
+  .toolbar { display: flex; gap: 0.35rem; margin-bottom: 0.75rem; flex-wrap: nowrap; align-items: center; height: 44px; overflow: hidden; position: sticky; top: 0; z-index: 50; background: var(--app-toolbar-bg); padding: 0.35rem 0.5rem; border-radius: 6px; border: 1px solid var(--app-border); box-shadow: 0 2px 8px rgba(0,0,0,0.12); }
+  .toolbar button, .toolbar .file-label, .toolbar .theme-picker { height: 32px; padding: 0 0.5rem; border: 1px solid var(--app-border); border-radius: 4px; background: var(--app-bg); color: var(--app-fg); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font-size: 0.85rem; line-height: 1; box-sizing: border-box; }
   .toolbar button:hover { filter: brightness(0.97); }
   .toolbar button:disabled { opacity: 0.45; cursor: not-allowed; }
   .toolbar select option { background: var(--app-toolbar-bg); color: var(--app-fg); }
-  .toolbar-group { display: inline-flex; gap: 0.25rem; align-items: center; }
-  .toolbar-spacer { flex: 1 1 auto; min-width: 1rem; }
-  .toolbar-end { display: inline-flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+  .toolbar-group { display: inline-flex; gap: 0.25rem; align-items: center; flex-shrink: 0; }
+  .toolbar-spacer { flex: 1 1 auto; min-width: 0.5rem; }
+  .toolbar-end { display: inline-flex; gap: 0.4rem; align-items: center; flex-shrink: 0; }
+  .icon-btn { width: 32px; padding: 0; }
   .mode-badge { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.2rem 0.6rem; border: 1px solid var(--app-accent); border-radius: 999px; background: var(--app-accent); color: #fff; font-size: 0.8rem; }
   .mode-badge button { border: none; background: transparent; color: #fff; cursor: pointer; padding: 0 0.2rem; height: auto; }
   .preview-scroll.review-mode { cursor: crosshair; }
