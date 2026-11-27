@@ -103,13 +103,20 @@ function linkEnhancePlugin(md) {
 
 
 function includePlaceholderPlugin(md) {
+  // Single-bracket include forms: [!foo.md] (bang) and [foo.md] (bare) both
+  // embed; labeled [text](foo.md) and reference-style [foo][bar] stay links.
   md.inline.ruler.before('link', 'include_placeholder', (state, silent) => {
     const pos = state.pos
     if (state.src.charCodeAt(pos) !== 0x5B) return false
-    if (state.src.charCodeAt(pos + 1) !== 0x21) return false
-    const end = state.src.indexOf(']', pos + 2)
+    let contentStart = pos + 1
+    if (state.src.charCodeAt(contentStart) === 0x21) contentStart++ // optional !
+    const end = state.src.indexOf(']', contentStart)
     if (end < 0) return false
-    const content = state.src.slice(pos + 2, end).trim()
+    // full links [text](url) belong to the link rule
+    if (state.src.charCodeAt(end + 1) === 0x28) return false
+    // reference-style [foo][bar] stays a reference link
+    if (state.src.charCodeAt(end + 1) === 0x5B) return false
+    const content = state.src.slice(contentStart, end).trim()
     if (!content) return false
     const ext = (content.split('.').pop() || '').toLowerCase()
     if (!['md', 'markdown', 'mmd'].includes(ext)) return false
