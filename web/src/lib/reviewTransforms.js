@@ -1,3 +1,4 @@
+// @ts-check
 // Pure-text helpers for CriticMarkup accept/reject and editor wrapping.
 // Kept DOM-free so they can be unit-checked with plain Node.
 
@@ -23,6 +24,11 @@ const MARKERS = {
   comment: ['{>>', '<<}'],
 }
 
+/**
+ * @param {string} selected
+ * @param {string} kind
+ * @returns {string}
+ */
 export function wrapWithMarkers(selected, kind) {
   const m = MARKERS[kind]
   if (!m) return selected || ''
@@ -57,6 +63,11 @@ function transformChunk(chunk, mode) {
   return cur
 }
 
+/**
+ * @param {string} text
+ * @param {'accept'|'reject'} mode
+ * @returns {string}
+ */
 export function transformCriticMarkup(text, mode) {
   // Protect fenced code blocks AND inline code spans (marks there are
   // literal per the renderer: code spans tokenize before critic rules).
