@@ -130,41 +130,119 @@ function includePlaceholderPlugin(md) {
     if (!['md', 'markdown', 'mmd'].includes(ext)) return false
     if (silent) return true
     if (!includeEmbedMode) {
-      const esc = content.replace(/"/g, '&quot;')
+      const esc = md.utils.escapeHtml(content)
       const token = state.push('html_inline', '', 0)
-      token.content = '<a href="' + esc + '" data-href="' + esc + '">' + content + '</a>'
+      token.content = '<a href="' + esc + '" data-href="' + esc + '">' + esc + '</a>'
       state.pos = end + 1
       return true
     }
+    const escPath = md.utils.escapeHtml(content)
     const token = state.push('html_inline', '', 0)
-    token.content = '<div class="include-placeholder" data-include-path="' + content.replace(/"/g, '&quot;') + '" data-include-line="' + state.line + '"></div>'
+    token.content = '<div class="include-placeholder" data-include-path="' + escPath + '" data-include-line="' + state.line + '"></div>'
+    token.meta = { includePath: content, offset: pos }
     state.pos = end + 1
     return true
   })
 }
 
-function includeBlockPlugin(md) {
-  md.core.ruler.after('inline', 'include_block', (state) => {
+function countNewlines(s) {
+  return (String(s || '').match(/\n/g) || []).length
+}
+
+function degradeInclude(md, token) {
+  const path = token.meta && token.meta.includePath ? token.meta.includePath : ''
+  const esc = md.utils.escapeHtml(path)
+  token.content = '<a href="' + esc + '" data-href="' + esc + '">' + esc + '</a>'
+  token.meta = null
+}
+
+function includeSplitPlugin(md) {
+  md.core.ruler.after('heading_ids', 'include_split', (state) => {
     const tokens = state.tokens
     let i = 0
     while (i < tokens.length) {
-      const tok = tokens[i]
-      if (tok.type !== 'paragraph_open') { i++; continue }
+      const open = tokens[i]
+      // Contexts that cannot hold a block: degrade includes to links.
+      if (open && (open.type === 'heading_open' || open.type === 'th_open' || open.type === 'td_open' || open.type === 'dt_open')) {
+        const inline = tokens[i + 1]
+        if (inline && inline.type === 'inline' && Array.isArray(inline.children)) {
+          for (const c of inline.children) {
+            if (c.type === 'html_inline' && c.meta && c.meta.includePath) degradeInclude(md, c)
+          }
+        }
+        i++
+        continue
+      }
+      if (!open || open.type !== 'paragraph_open') { i++; continue }
       const inline = tokens[i + 1]
       const close = tokens[i + 2]
       if (!inline || inline.type !== 'inline' || !close || close.type !== 'paragraph_close') { i++; continue }
-      const children = inline.children || []
-      if (children.length !== 1 || children[0].type !== 'html_inline' || !String(children[0].content).includes('include-placeholder')) { i++; continue }
-      const line = (tok.map && tok.map[0] != null) ? tok.map[0] : (inline.content ? 0 : 0)
-      const html = children[0].content.replace(/data-include-line="[^"]*"/, 'data-include-line="' + line + '"')
-      // convert paragraph to html_block
-      tok.type = 'html_block'
-      tok.tag = ''
-      tok.content = html + '\n'
-      tok.children = []
-      // remove inline + close
-      tokens.splice(i + 1, 2)
-      i++
+      const children = Array.isArray(inline.children) ? inline.children : []
+      const hasInclude = children.some((c) => c.type === 'html_inline' && c.meta && c.meta.includePath)
+      if (!hasInclude) { i++; continue }
+
+      const replacement = []
+      let segment = []
+      let depth = 0
+      for (const child of children) {
+        const isInclude = child.type === 'html_inline' && child.meta && child.meta.includePath
+        if (isInclude) {
+          if (depth > 0) {
+            degradeInclude(md, child)
+            segment.push(child)
+            continue
+          }
+          if (segment.length > 0) {
+            const po = new state.Token('paragraph_open', 'p', 1)
+            const inl = new state.Token('inline', '', 0)
+            const pc = new state.Token('paragraph_close', 'p', -1)
+            if (open.map) {
+              po.map = [open.map[0], open.map[1]]
+              inl.map = [open.map[0], open.map[1]]
+            }
+            if (open.attrs) {
+              po.attrs = open.attrs.map((a) => [a[0], a[1]])
+            }
+            po.hidden = open.hidden
+            pc.hidden = open.hidden
+            inl.children = segment
+            inl.content = segment.map((c) => c.content || '').join('')
+            replacement.push(po, inl, pc)
+            segment = []
+          }
+          const hb = new state.Token('html_block', '', 0)
+          const lineNo = (open.map && open.map[0] != null ? open.map[0] : 0) + countNewlines(inline.content.slice(0, child.meta.offset))
+          const phHtml = String(child.content).replace(/data-include-line="[^"]*"/, 'data-include-line="' + lineNo + '"')
+          hb.content = phHtml + '\n'
+          if (open.map) hb.map = [open.map[0], open.map[1]]
+          replacement.push(hb)
+          continue
+        }
+        if (child.type && String(child.type).endsWith('_open')) depth++
+        else if (child.type && String(child.type).endsWith('_close')) depth = Math.max(0, depth - 1)
+        segment.push(child)
+      }
+      if (segment.length > 0) {
+        const po = new state.Token('paragraph_open', 'p', 1)
+        const inl = new state.Token('inline', '', 0)
+        const pc = new state.Token('paragraph_close', 'p', -1)
+        if (open.map) {
+          po.map = [open.map[0], open.map[1]]
+          inl.map = [open.map[0], open.map[1]]
+        }
+        if (open.attrs) {
+          po.attrs = open.attrs.map((a) => [a[0], a[1]])
+        }
+        po.hidden = open.hidden
+        pc.hidden = open.hidden
+        inl.children = segment
+        inl.content = segment.map((c) => c.content || '').join('')
+        replacement.push(po, inl, pc)
+      }
+
+      if (replacement.length === 0) { i++; continue }
+      tokens.splice(i, 3, ...replacement)
+      i += replacement.length
     }
   })
 }
@@ -311,7 +389,7 @@ export function createMarkdown() {
   md.use(sourceLinePlugin)
   md.use(headingIdPlugin)
   includePlaceholderPlugin(md)
-  includeBlockPlugin(md)
+  includeSplitPlugin(md)
   linkEnhancePlugin(md)
   md.use(diagramPlugin)
 

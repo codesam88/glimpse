@@ -34,6 +34,46 @@ const sidebar = await page.locator('[data-testid="sidebar"]').count()
 check('sidebar present', sidebar === 1)
 const menus = await page.locator('[data-testid^="menu-"]').count()
 check('menus present', menus >= 3, `${menus}`)
+
+// Menu popover visibility / hit-testing / Escape close.
+const menuTriggers = await page.locator('[data-testid^="menu-"]').all()
+for (const trig of menuTriggers) {
+  const tid = await trig.getAttribute('data-testid')
+  await trig.click()
+  await page.waitForSelector('.menu-popover', { state: 'visible', timeout: 5000 })
+  const pop = page.locator('.menu-popover').first()
+  const box = await pop.boundingBox()
+  const vp = page.viewportSize()
+  const inViewport = !!box && box.x >= 0 && box.y >= 0 &&
+    box.x + box.width <= (vp?.width || 0) && box.y + box.height <= (vp?.height || 0)
+  const item = pop.locator('[role="menuitem"]').first()
+  const ibox = await item.boundingBox()
+  const hitInside = (ibox && vp)
+    ? await page.evaluate(({ x, y }) => {
+        const el = document.elementFromPoint(x, y)
+        return !!el && !!el.closest('.menu-popover')
+      }, { x: ibox.x + ibox.width / 2, y: ibox.y + ibox.height / 2 })
+    : false
+  check(`menu popover visible & in viewport (${tid})`, inViewport && hitInside, `inViewport=${inViewport} hit=${hitInside}`)
+  await page.keyboard.press('Escape')
+  await page.waitForTimeout(200)
+  const stillOpen = await page.locator('.menu-popover').isVisible().catch(() => false)
+  check(`menu closes on Escape (${tid})`, !stillOpen, stillOpen ? 'still open' : '')
+}
+
+// Only one popover visible at a time: opening a second closes the first.
+const allTrigs = await page.locator('[data-testid^="menu-"]').all()
+if (allTrigs.length >= 2) {
+  await allTrigs[0].click()
+  await page.waitForSelector('.menu-popover', { state: 'visible', timeout: 5000 })
+  await allTrigs[1].click()
+  await page.waitForTimeout(200)
+  const visibleCount = await page.locator('.menu-popover').count()
+  check('only one menu popover visible at a time', visibleCount <= 1, `${visibleCount} visible`)
+  await page.keyboard.press('Escape')
+  await page.waitForTimeout(100)
+}
+
 const iconBtns = await page.locator('.icon-btn').count()
 check('icon buttons present', iconBtns >= 4, `${iconBtns}`)
 // Logical scroll anchoring: a geometry change (zoom) must keep the same
@@ -62,6 +102,37 @@ check(
   anchorBefore !== null && anchorAfter !== null && Math.abs(anchorBefore - anchorAfter) <= 1,
   `${anchorBefore} -> ${anchorAfter}`,
 )
+
+
+// Include ordering: mid-paragraph include renders as a block sibling in source order.
+const { fileURLToPath } = await import('node:url')
+const { dirname: _dirname, resolve: _resolve } = await import('node:path')
+const includeFixturePath = fileURLToPath(new URL('../web/public/include-order.md', import.meta.url))
+await page.locator('input[type=file]').setInputFiles(includeFixturePath)
+await page.waitForSelector('.include-root', { timeout: 15000 })
+await page.waitForTimeout(1500)
+const incRes = await page.evaluate(() => {
+  const root = document.querySelector('#rendered')
+  if (!root) return { ok: false, reason: 'no #rendered' }
+  if (root.querySelector('p .include-root, p .include-placeholder, h1 .include-root, h1 .include-placeholder')) {
+    return { ok: false, reason: 'include nested in p/h1' }
+  }
+  const text = root.textContent || ''
+  const positions = ['mid', 'Target doc', 'tail', 'after'].map((s) => text.indexOf(s))
+  if (positions.some((p) => p < 0)) return { ok: false, reason: 'missing text ' + positions.join(',') }
+  for (let i = 1; i < positions.length; i++) {
+    if (!(positions[i - 1] < positions[i])) return { ok: false, reason: 'order ' + positions.join(',') }
+  }
+  const ir = root.querySelector('.include-root')
+  const prev = ir ? ir.previousElementSibling : null
+  const next = ir ? ir.nextElementSibling : null
+  const prevText = prev ? (prev.textContent || '').trim() : ''
+  const nextText = next ? (next.textContent || '').trim() : ''
+  if (!prevText.includes('mid')) return { ok: false, reason: 'prev not mid: ' + prevText }
+  if (!nextText.includes('tail')) return { ok: false, reason: 'next not tail: ' + nextText }
+  return { ok: true }
+})
+check('include ordering mid-paragraph renders in source order', incRes.ok, incRes.reason || '')
 
 // CriticMarkup around an image: the marker must be visible (background behind
 // an opaque image is not), deletions dim the image.

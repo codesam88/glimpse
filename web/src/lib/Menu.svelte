@@ -1,4 +1,5 @@
 <script>
+  import { tick } from 'svelte'
   import Icon from './Icon.svelte'
   let {
     label = '',
@@ -8,21 +9,24 @@
     testId = '',
   } = $props()
 
-  let el
-
-  function toggle(e) {
-    e?.stopPropagation?.()
-    open = !open
-  }
+  let triggerEl = $state(null)
+  let popoverEl = $state(null)
+  let pos = $state(null)
 
   function close() {
     open = false
+    pos = null
+    removeListeners()
+  }
+
+  function toggle() {
+    open = !open
   }
 
   function handleKey(e) {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault()
-      toggle(e)
+      toggle()
     } else if (e.key === 'Escape') {
       close()
     }
@@ -30,13 +34,76 @@
 
   function onWindowClick(e) {
     if (!open) return
-    if (el && el.contains(e.target)) return
+    if (triggerEl && triggerEl.contains(e.target)) return
+    if (popoverEl && popoverEl.contains(e.target)) return
     close()
   }
 
   function onWindowKey(e) {
     if (e.key === 'Escape' && open) close()
   }
+
+  function onScroll() {
+    if (open) close()
+  }
+
+  function onResize() {
+    if (open) close()
+  }
+
+  function addListeners() {
+    window.addEventListener('scroll', onScroll, true)
+    window.addEventListener('resize', onResize)
+  }
+
+  function removeListeners() {
+    window.removeEventListener('scroll', onScroll, true)
+    window.removeEventListener('resize', onResize)
+  }
+
+  function measure() {
+    if (!triggerEl || !popoverEl) return
+    const rect = triggerEl.getBoundingClientRect()
+    const ph = popoverEl.offsetHeight
+    const pw = popoverEl.offsetWidth
+    const vw = window.innerWidth
+    const vh = window.innerHeight
+    let top
+    let maxHeight = null
+    if (rect.bottom + 4 + ph <= vh - 8) {
+      top = rect.bottom + 4
+    } else {
+      const above = rect.top - 4 - ph
+      if (above >= 8) {
+        top = above
+      } else {
+        top = 8
+        maxHeight = vh - 16
+      }
+    }
+    let left = rect.left
+    left = Math.max(8, Math.min(left, vw - pw - 8))
+    pos = { top, left, maxHeight }
+  }
+
+  $effect(() => {
+    if (!open) {
+      pos = null
+      removeListeners()
+      return
+    }
+    let cancelled = false
+    pos = null
+    tick().then(() => {
+      if (cancelled || !open) return
+      measure()
+      addListeners()
+    })
+    return () => {
+      cancelled = true
+      removeListeners()
+    }
+  })
 
   function formatShortcut(s) {
     if (!s) return ''
@@ -46,7 +113,7 @@
 
 <svelte:window on:click={onWindowClick} on:keydown={onWindowKey} />
 
-<div class="menu" bind:this={el}>
+<div class="menu" bind:this={triggerEl}>
   <button
     class="menu-trigger"
     type="button"
@@ -62,7 +129,12 @@
   </button>
 
   {#if open}
-    <div class="menu-popover" role="menu">
+    <div
+      class="menu-popover"
+      role="menu"
+      bind:this={popoverEl}
+      style="position: fixed; top: {pos ? pos.top + 'px' : '0px'}; left: {pos ? pos.left + 'px' : '0px'}; z-index: 900; visibility: {pos ? 'visible' : 'hidden'}; {pos && pos.maxHeight ? 'max-height: ' + pos.maxHeight + 'px; overflow-y: auto;' : ''}"
+    >
       {#each items as item, i (i)}
         {#if item.separator}
           <hr class="menu-sep" />
@@ -94,9 +166,9 @@
 </div>
 
 <style>
-  .menu { position: relative; display: inline-block; }
+  .menu { display: inline-block; }
   .menu-trigger { display: inline-flex; align-items: center; gap: 0.35rem; height: 32px; padding: 0 0.6rem; border: 1px solid var(--app-border); border-radius: 4px; background: var(--app-bg); color: var(--app-fg); cursor: pointer; font-size: 0.85rem; }
-  .menu-popover { position: absolute; top: calc(100% + 4px); left: 0; z-index: 60; display: flex; flex-direction: column; gap: 0.15rem; min-width: 200px; padding: 0.4rem; border: 1px solid var(--app-border); border-radius: 6px; background: var(--app-toolbar-bg); box-shadow: 0 4px 12px rgba(0,0,0,0.18); }
+  .menu-popover { display: flex; flex-direction: column; gap: 0.15rem; min-width: 200px; max-width: calc(100vw - 16px); padding: 0.4rem; border: 1px solid var(--app-border); border-radius: 6px; background: var(--app-toolbar-bg); box-shadow: 0 4px 12px rgba(0,0,0,0.18); }
   .menu-item { display: flex; align-items: center; gap: 0.5rem; width: 100%; height: auto; padding: 0.35rem 0.5rem; border: none; border-radius: 4px; background: transparent; color: var(--app-fg); cursor: pointer; font-size: 0.85rem; text-align: left; }
   .menu-item:hover { background: var(--app-bg); }
   .menu-item:disabled { opacity: 0.45; cursor: not-allowed; }

@@ -3,6 +3,23 @@
 All notable changes to Glimpse. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning: semver.
 
+## [Unreleased]
+
+### Fixed
+
+- **Transclusion ordering** — a `[!file.md]` / `[file.md]` include written
+  mid-paragraph, inside a list item or inside a blockquote now renders its
+  content as a block **at the anchor position**; previously the placeholder
+  was hoisted out of the enclosing `<p>`/`<li>`, appending included content
+  out of order and orphaning trailing text. Includes inside headings, table
+  cells or inline emphasis (`**…**`) degrade to links instead of producing
+  invalid DOM; `data-include-line` is always numeric (fixes anchoring inside
+  includes).
+- **Menu popovers** — File/View/Review dropdown menus were clipped by the
+  toolbar (`overflow: hidden`) and painted under the preview. Popovers now
+  use fixed positioning from the trigger rect, clamp/flip within the
+  viewport, scroll internally when too tall, and close on scroll/resize.
+
 ## [0.1.0] — 2026-11-26
 
 First release. Standalone offline markdown viewer for Linux — local files,

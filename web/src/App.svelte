@@ -2178,11 +2178,6 @@
   .diagram-modal-body { display: flex; align-items: center; justify-content: center; }
   .diagram-modal-body svg { max-width: 95vw; max-height: 90vh; width: auto; height: auto; }
   .sidebar-icon-btn { width: 32px; padding: 0; font-size: 1.1rem; font-weight: 700; }
-  .debug-menu { position: relative; display: inline-block; }
-  .debug-summary { list-style: none; cursor: pointer; user-select: none; }
-  .debug-summary::-webkit-details-marker { display: none; }
-  .debug-popover { position: absolute; top: calc(100% + 4px); right: 0; z-index: 60; display: flex; flex-direction: column; gap: 0.25rem; min-width: 160px; padding: 0.4rem; border: 1px solid var(--app-border); border-radius: 6px; background: var(--app-toolbar-bg); box-shadow: 0 4px 12px rgba(0,0,0,0.18); }
-  .debug-popover button { justify-content: flex-start; }
   .zoom-stepper { display: inline-flex; align-items: stretch; border: 1px solid var(--app-border); border-radius: 4px; overflow: hidden; background: var(--app-bg); height: 32px; }
   .zoom-stepper button { border: none; border-radius: 0; height: 32px; padding: 0 0.6rem; background: var(--app-bg); color: var(--app-fg); }
   .zoom-stepper button + button { border-left: 1px solid var(--app-border); }
