@@ -27,6 +27,7 @@ export default [
         DOMParser: 'readonly',
         getComputedStyle: 'readonly',
         MutationObserver: 'readonly',
+        ResizeObserver: 'readonly',
         performance: 'readonly',
         btoa: 'readonly',
         atob: 'readonly',

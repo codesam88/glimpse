@@ -86,6 +86,17 @@
   let externalChange = null
   // scroll sync
   let syncUntil = 0
+  let programmaticScroll = false
+  let userScrolledDuringFill = false
+  let resizeObserver = null
+  let resizeTimer = null
+  let resizeAnchor = null
+  let resizeObserverEnabled = false
+  // Anchor at the last settled scroll position. Geometry changes (resize,
+  // zoom, sidebar, reflow) must restore THIS, never an anchor captured after
+  // the layout already moved.
+  let restAnchor = null
+  let restAnchorTimer = null
   let editorRafId = null
   let previewRafId = null
   let editorScrollListenerAttached = false
@@ -124,11 +135,16 @@
     return h + ':' + s.length
   }
 
-  async function loadText(source) {
+  // scrollMode: 'anchor' keeps the logical position across reflows (same doc),
+  // 'top' starts a freshly opened document at the top, 'none' leaves scrolling
+  // to the caller (openPath with preserveScroll restores explicitly).
+  async function loadText(source, scrollMode = 'anchor') {
     if (!md) md = createMarkdown()
     const baseDir = currentPath ? dirname(currentPath) : ''
     const h = hashText(source)
     if (h === lastHash && html) return
+    const anchor = scrollMode === 'anchor' ? captureAnchor() : null
+    userScrolledDuringFill = false
     lastHash = h
     html = sanitizeHtml(md.render(source))
     await tick()
@@ -140,6 +156,14 @@
       await watchIncluded()
     }
     refreshSidebar()
+    if (anchor && !userScrolledDuringFill) {
+      requestAnimationFrame(() => restoreAnchor(anchor))
+    } else if (scrollMode === 'top' && previewEl && !userScrolledDuringFill) {
+      restAnchor = null
+      programmaticScroll = true
+      previewEl.scrollTop = 0
+      requestAnimationFrame(() => { programmaticScroll = false })
+    }
   }
 
   async function readPath(path) {
@@ -172,7 +196,7 @@
   function getPreviewTopSourceLine() {
     if (!previewEl) return null
     const rect = previewEl.getBoundingClientRect()
-    const els = Array.from(previewEl.querySelectorAll('[data-source-line]')).filter((el) => !el.closest('.include-root')).filter((el) => !el.closest('.include-root'))
+    const els = Array.from(previewEl.querySelectorAll('[data-source-line]')).filter((el) => !el.closest('.include-root'))
     let best = null
     for (const el of els) {
       const r = el.getBoundingClientRect()
@@ -181,6 +205,46 @@
     if (!best && els.length) best = els[els.length - 1]
     if (!best) return null
     return { el: best, line: parseInt(best.getAttribute('data-source-line'), 10) }
+  }
+
+  function captureAnchor() {
+    if (!previewEl) return null
+    const rect = previewEl.getBoundingClientRect()
+    const els = Array.from(previewEl.querySelectorAll('[data-source-line]')).filter((el) => !el.closest('.include-root'))
+    let best = null
+    for (const el of els) {
+      const r = el.getBoundingClientRect()
+      if (r.bottom > rect.top + 1) { best = el; break }
+    }
+    if (!best && els.length) best = els[0]
+    if (!best) return null
+    const line = parseInt(best.getAttribute('data-source-line'), 10)
+    if (isNaN(line)) return null
+    const frac = (best.getBoundingClientRect().top - rect.top) / Math.max(1, rect.height)
+    return { line, frac }
+  }
+
+  function restoreAnchor(a) {
+    if (!a || !previewEl) return
+    const els = Array.from(previewEl.querySelectorAll('[data-source-line]')).filter((el) => !el.closest('.include-root'))
+    const el = els.find((e) => parseInt(e.getAttribute('data-source-line'), 10) === a.line)
+    if (!el) return
+    const previewRect = previewEl.getBoundingClientRect()
+    const r = el.getBoundingClientRect()
+    const target = previewEl.scrollTop + (r.top - previewRect.top) - a.frac * previewRect.height
+    programmaticScroll = true
+    previewEl.scrollTop = Math.max(0, target)
+    restAnchor = a
+    requestAnimationFrame(() => { programmaticScroll = false })
+  }
+
+  // Recomputed lazily after the user stops scrolling (reading hundreds of
+  // element rects on every scroll event would be wasteful).
+  function noteRestAnchor() {
+    clearTimeout(restAnchorTimer)
+    restAnchorTimer = setTimeout(() => {
+      if (!programmaticScroll) restAnchor = captureAnchor()
+    }, 150)
   }
 
   function syncEditorToPreview() {
@@ -354,6 +418,7 @@
   }
 
   function handlePreviewScroll() {
+    if (!programmaticScroll) { userScrolledDuringFill = true; noteRestAnchor() }
     updateSidebarActive()
     if (performance.now() < syncUntil) return
     if (previewRafId) cancelAnimationFrame(previewRafId)
@@ -452,7 +517,7 @@
     ignoredDiskHash = null
     loading = true
     error = ''
-    const prevScroll = preserveScroll ? (previewEl ? previewEl.scrollTop : 0) : 0
+    const anchor = preserveScroll ? captureAnchor() : null
     const prevEditorScroll = preserveScroll ? (editorView ? editorView.scrollDOM.scrollTop : 0) : 0
     try {
       let t
@@ -468,14 +533,14 @@
       currentPath = path
       text = t
       lastHash = ''
-      await loadText(t)
+      await loadText(t, preserveScroll ? 'none' : 'top')
       loadingFile = false
       dirty = false
       lastSavedHash = null
       if (preserveScroll) {
         await tick()
         requestAnimationFrame(() => {
-          if (previewEl) previewEl.scrollTop = prevScroll
+          if (anchor) restoreAnchor(anchor)
           if (editorView) editorView.scrollDOM.scrollTop = prevEditorScroll
         })
       }
@@ -518,7 +583,7 @@
       loadingFile = true
       text = t
       lastHash = ''
-      await loadText(t)
+      await loadText(t, 'top')
       loadingFile = false
       navHistory = ['fixture.md']
       navIndex = 0
@@ -541,7 +606,7 @@
       loadingFile = true
       text = t
       lastHash = ''
-      await loadText(t)
+      await loadText(t, 'top')
       loadingFile = false
       navHistory = ['fixture-review.md']
       navIndex = 0
@@ -564,7 +629,7 @@
       text = t
       currentPath = f.name
       lastHash = ''
-      await loadText(t)
+      await loadText(t, 'top')
       loadingFile = false
       dirty = false
       const p = f.name
@@ -586,6 +651,7 @@
   }
 
   async function setTheme(next) {
+    const a = captureAnchor()
     theme = next
     applyTheme(theme)
     persist('theme', theme)
@@ -597,6 +663,7 @@
       })
       if (diagramsEnabled) await renderDiagrams(root)
     }
+    requestAnimationFrame(() => restoreAnchor(a))
   }
 
   async function saveFile() {
@@ -984,7 +1051,7 @@
       currentPath = resolved
       text = finalSrc
       lastHash = ''
-      await loadText(finalSrc)
+      await loadText(finalSrc, 'top')
       loadingFile = false
       dirty = false
       lastSavedHash = null
@@ -1317,6 +1384,7 @@
   }
 
   async function toggleViewMode() {
+    const a = captureAnchor()
     viewMode = viewMode === 'preview' ? 'split' : 'preview'
     persist('viewMode', viewMode)
     await tick()
@@ -1325,11 +1393,13 @@
       if (editorView) {
         try { editorView.requestMeasure() } catch (e) { console.warn(e) }
       }
+      restoreAnchor(a)
     })
   }
 
   async function reloadFromDisk() {
     if (!conflict) return
+    const a = captureAnchor()
     const newText = conflict.diskText
     const targetPath = conflict.path
     const wasNav = !!conflict.navigation
@@ -1346,6 +1416,7 @@
     loadingFile = false
     dirty = false
     lastSavedHash = null
+    requestAnimationFrame(() => restoreAnchor(a))
     // if this was a navigation, advance history index now
     if (wasNav && targetPath) {
       const idx = navHistory.indexOf(targetPath)
@@ -1384,7 +1455,9 @@
   }
 
   function applyZoom() {
+    const a = captureAnchor()
     document.documentElement.style.fontSize = (16 * zoom) + 'px'
+    requestAnimationFrame(() => requestAnimationFrame(() => restoreAnchor(a)))
   }
   function zoomIn() { zoom = Math.min(3, +(zoom + 0.1).toFixed(2)); applyZoom(); persist('zoom', zoom) }
   function zoomOut() { zoom = Math.max(0.5, +(zoom - 0.1).toFixed(2)); applyZoom(); persist('zoom', zoom) }
@@ -1414,6 +1487,7 @@
   function resetZoom() { zoom = 1; applyZoom(); persist('zoom', zoom) }
 
   async function toggleDiagrams() {
+    const a = captureAnchor()
     diagramsEnabled = !diagramsEnabled
     const root = document.querySelector('#rendered')
     if (root) {
@@ -1424,9 +1498,11 @@
       if (diagramsEnabled) await renderDiagrams(root)
     }
     persist('diagramsEnabled', diagramsEnabled)
+    requestAnimationFrame(() => restoreAnchor(a))
   }
 
   async function rerenderDiagrams() {
+    const a = captureAnchor()
     const root = document.querySelector('#rendered')
     if (!root) return
     root.querySelectorAll('.diagram-placeholder').forEach((ph) => {
@@ -1434,6 +1510,7 @@
       ph.innerHTML = ''
     })
     if (diagramsEnabled) await renderDiagrams(root)
+    requestAnimationFrame(() => restoreAnchor(a))
   }
 
   function startResize(e) {
@@ -1679,6 +1756,21 @@
       applySettingsSideEffects()
     }
 
+    // ResizeObserver for logical scroll preservation on geometry changes
+    try {
+      resizeObserver = new ResizeObserver(() => {
+        if (!resizeObserverEnabled) return
+        if (!resizeAnchor) resizeAnchor = restAnchor
+        clearTimeout(resizeTimer)
+        resizeTimer = setTimeout(() => {
+          restoreAnchor(resizeAnchor)
+          resizeAnchor = null
+        }, 100)
+      })
+      if (previewEl) resizeObserver.observe(previewEl)
+    } catch (e) {}
+    setTimeout(() => { resizeObserverEnabled = true }, 1000)
+
     await loadFixture()
     loading = false
   })
@@ -1711,6 +1803,8 @@
   }
 
   onDestroy(() => {
+    if (resizeObserver) { try { resizeObserver.disconnect() } catch {} }
+    clearTimeout(restAnchorTimer)
     if (window.__mdv_cleanup_keybindings) { try { window.__mdv_cleanup_keybindings() } catch {} }
     if (unwatch) { try { unwatch() } catch {} }
     clearTimeout(debounceTimer)
