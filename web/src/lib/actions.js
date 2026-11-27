@@ -51,16 +51,21 @@ const META = {
 
 export const ACTION_IDS = Object.keys(META)
 
+/** @type {Record<string, (...args: any[]) => any>} */
 const runners = {}
 
 /**
- * @param {Record<string, (...args:any[])=>any>} map
+ * @param {Record<string, (...args: any[]) => any>} [map]
  */
 export function setRunners(map) {
   if (!map || typeof map !== 'object') return
   for (const k of Object.keys(map)) runners[k] = map[k]
 }
 
+/**
+ * @param {string} id
+ * @param {(...args: any[]) => any} fn
+ */
 export function setRunner(id, fn) {
   runners[id] = fn
 }
@@ -76,9 +81,9 @@ export function getAction(id) {
     label: meta ? meta.label : id,
     icon: meta ? meta.icon : '',
     shortcut: Array.isArray(defaults[id]) ? [...defaults[id]] : (defaults[id] ? [defaults[id]] : []),
-    run: (...args) => {
+    run: () => {
       const fn = runners[id]
-      if (typeof fn === 'function') return fn(...args)
+      if (typeof fn === 'function') return fn()
       return undefined
     },
   }
@@ -98,10 +103,14 @@ export const actions = new Proxy({}, {
 /**
  * @param {string} id
  */
-export function runAction(id, ...args) {
+/**
+ * @param {string} id
+ * @returns {any}
+ */
+export function runAction(id) {
   const a = getAction(id)
   if (!a) return undefined
-  return a.run(...args)
+  return a.run()
 }
 
 export default { ACTION_IDS, META, setRunners, setRunner, getAction, getAllActions, actions, runAction }
