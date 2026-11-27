@@ -9,6 +9,8 @@ Built on: [Tauri](https://tauri.app), [Svelte](https://svelte.dev) +
 [KaTeX](https://katex.org), [highlight.js](https://highlightjs.org),
 [CodeMirror 6](https://codemirror.net), [DOMPurify](https://github.com/cure53/DOMPurify).
 
+Icons: [Material Design Icons](https://github.com/Templarian/MaterialDesign) (Apache-2.0).
+
 Diagrams, all rendered locally: [mermaid](https://mermaid.js.org),
 [@plantuml/core](https://github.com/plantuml/plantuml) (PlantUML → JS, no
 Java/server), [@viz-js/viz](https://github.com/mdaines/viz-js) (Graphviz),
