@@ -1,3 +1,4 @@
+// @ts-check
 // Configurable key bindings registry (V1).
 //
 // Persistence shape (stored under localStorage / Tauri store key "keybindings"):
@@ -10,6 +11,11 @@
 // Modifiers: Ctrl, Alt, Shift, Meta (aliases: Control, Cmd, Super).
 // Key tokens are matched case-insensitively against the normalized event key.
 
+/**
+ * @typedef {Record<string, string[]>} KeyBindings
+ */
+
+/** @type {KeyBindings} */
 export const DEFAULT_BINDINGS = {
   'zoom.in': ['Ctrl+=', 'Ctrl+Shift+=', 'Ctrl+numadd', 'Ctrl+WheelUp'],
   'zoom.out': ['Ctrl+-', 'Ctrl+numsubtract', 'Ctrl+WheelDown'],
@@ -30,8 +36,12 @@ export const DEFAULT_BINDINGS = {
   // browser reload and would be surprising; use the Reload button instead.
 }
 
+/**
+ * @returns {KeyBindings}
+ */
 export function getDefaults() {
   // deep copy
+  /** @type {KeyBindings} */
   const out = {}
   for (const k of Object.keys(DEFAULT_BINDINGS)) out[k] = [...DEFAULT_BINDINGS[k]]
   return out
@@ -96,6 +106,11 @@ function modsEqual(a, b) {
   return a.ctrl === b.ctrl && a.alt === b.alt && a.shift === b.shift && a.meta === b.meta
 }
 
+/**
+ * @param {string} spec
+ * @param {any} e
+ * @returns {boolean}
+ */
 export function specMatchesEvent(spec, e) {
   const { mods, key } = parseSpec(spec)
   if (!key) return false
@@ -110,6 +125,11 @@ export function specMatchesEvent(spec, e) {
   return evKey === key || String(evKey).toLowerCase() === String(key).toLowerCase()
 }
 
+/**
+ * @param {KeyBindings} bindings
+ * @param {any} e
+ * @returns {string | null}
+ */
 export function findAction(bindings, e) {
   for (const actionId of Object.keys(bindings || {})) {
     const specs = bindings[actionId]
@@ -121,7 +141,14 @@ export function findAction(bindings, e) {
   return null
 }
 
+/**
+ * @param {KeyBindings} base
+ * @param {any} overrides
+ * @returns {KeyBindings}
+ */
 export function mergeBindings(base, overrides) {
+  /** @type {KeyBindings} */
+  /** @type {KeyBindings} */
   const out = {}
   for (const k of Object.keys(base || {})) out[k] = [...(base[k] || [])]
   if (overrides && typeof overrides === 'object') {

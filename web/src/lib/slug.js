@@ -1,3 +1,4 @@
+// @ts-check
 // GitHub-style heading slugger, extracted for unit testing.
 //
 // slugify(text): lowercase, strip punctuation (keeping - and _), spaces->-,
@@ -5,6 +6,10 @@
 //
 // Slugger: dedupes sequential slugs with -1, -2, ... suffixes.
 
+/**
+ * @param {unknown} text
+ * @returns {string}
+ */
 export function slugify(text) {
   const s = String(text == null ? '' : text)
     .trim()
@@ -17,9 +22,15 @@ export function slugify(text) {
 }
 
 export class Slugger {
+  /** @type {Record<string, number>} */
+  seen
   constructor() {
     this.seen = Object.create(null)
   }
+  /**
+   * @param {unknown} text
+   * @returns {string}
+   */
   slug(text) {
     const base = slugify(text)
     let slug = base
@@ -29,6 +40,9 @@ export class Slugger {
     this.seen[base] = (this.seen[base] || 0) + 1
     return slug
   }
+  /**
+   * @returns {void}
+   */
   reset() {
     this.seen = Object.create(null)
   }
