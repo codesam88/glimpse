@@ -6,6 +6,10 @@
 //   where text is source with include links replaced by rendered HTML blocks
 //   carrying provenance attrs (data-include-path, data-include-line).
 
+/**
+ * @param {string} p
+ * @returns {string}
+ */
 function normalizePath(p) {
   const leading = String(p || '').startsWith('/') ? '/' : ''
   const out = []
@@ -32,12 +36,20 @@ export function resolveInclude(baseDir, href) {
   return normalizePath((base ? base + '/' : '') + clean)
 }
 
+/**
+ * @param {string} href
+ * @returns {boolean}
+ */
 function isIncludeLink(href) {
   const clean = String(href || '').trim()
   const ext = (clean.split('.').pop() || '').toLowerCase()
   return ['md', 'markdown', 'mmd'].includes(ext)
 }
 
+/**
+ * @param {string} s
+ * @returns {string}
+ */
 function escapeHtml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
@@ -58,6 +70,7 @@ export async function renderTransclusions(md, sourceText, baseDir, opts = {}) {
   const maxDepth = opts.maxDepth == null ? 5 : opts.maxDepth
   const maxBytes = opts.maxBytes == null ? 512 * 1024 : opts.maxBytes
   const visited = opts.visited || new Set()
+  /** @type {string[]} */
   const includedPaths = []
 
   const source = String(sourceText || '')
@@ -121,6 +134,12 @@ export async function renderTransclusions(md, sourceText, baseDir, opts = {}) {
 }
 
 // Back-compat text API
+/**
+ * @param {string} text
+ * @param {string} [baseDir]
+ * @param {any} [opts]
+ * @returns {Promise<{ text: string, errors: any[] }>}
+ */
 export async function loadTransclusion(text, baseDir, opts = {}) {
   const r = await renderTransclusions(null, text, baseDir, opts)
   // if md not provided, just return text (no render) — keep for tests

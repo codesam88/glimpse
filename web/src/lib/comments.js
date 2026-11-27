@@ -7,8 +7,12 @@
 //
 // Code blocks (fenced) are masked so markers inside them are ignored.
 
+/**
+ * @param {string} src
+ * @returns {string}
+ */
 function maskCodeBlocks(src) {
-  return src.replace(/```[\s\S]*?```|~~~[\s\S]*?~~~/g, (block) => block.replace(/[^\n]/g, ' '))
+  return src.replace(/```[\s\S]*?```|~~~[\s\S]*?~~~/g, /** @param {string} block */ (block) => block.replace(/[^\n]/g, ' '))
 }
 
 /**
@@ -19,6 +23,7 @@ function maskCodeBlocks(src) {
 export function parseCommentTree(source) {
   const src = maskCodeBlocks(String(source || ''))
   const roots = []
+  /** @type {any[]} */
   const stack = []
   let i = 0
   while (i < src.length) {
@@ -28,6 +33,7 @@ export function parseCommentTree(source) {
     } else if (src.startsWith('<<}', i)) {
       if (stack.length) {
         const top = stack.pop()
+        if (!top) { i += 3; continue }
         const node = {
           start: top.start,
           end: i + 3,
@@ -36,8 +42,10 @@ export function parseCommentTree(source) {
           inner: src.slice(top.innerStart, i),
           children: top.children || [],
         }
-        if (stack.length) stack[stack.length - 1].children.push(node)
-        else roots.push(node)
+        if (stack.length) {
+          const parent = stack[stack.length - 1]
+          if (parent) parent.children.push(node)
+        } else roots.push(node)
       }
       i += 3
     } else {
