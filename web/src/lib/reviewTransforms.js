@@ -2,6 +2,10 @@
 // Pure-text helpers for CriticMarkup accept/reject and editor wrapping.
 // Kept DOM-free so they can be unit-checked with plain Node.
 
+/**
+ * @typedef {'addition'|'deletion'|'highlight'|'comment'} ReviewKind
+ */
+
 const PATTERNS = {
   addition: /\{\+\+([\s\S]*?)\+\+\}/g,
   deletion: /\{--([\s\S]*?)--\}/g,
@@ -10,6 +14,7 @@ const PATTERNS = {
   comment: /\{>>([\s\S]*?)<<\}/g,
 }
 
+/** @type {Record<ReviewKind, string>} */
 const PLACEHOLDERS = {
   addition: 'added',
   deletion: 'removed',
@@ -17,6 +22,7 @@ const PLACEHOLDERS = {
   comment: 'comment',
 }
 
+/** @type {Record<ReviewKind, string[]>} */
 const MARKERS = {
   addition: ['{++', '++}'],
   deletion: ['{--', '--}'],
@@ -26,7 +32,7 @@ const MARKERS = {
 
 /**
  * @param {string} selected
- * @param {string} kind
+ * @param {ReviewKind} kind
  * @returns {string}
  */
 export function wrapWithMarkers(selected, kind) {
@@ -37,6 +43,11 @@ export function wrapWithMarkers(selected, kind) {
   return m[0] + inner + m[1]
 }
 
+/**
+ * @param {string} chunk
+ * @param {'accept'|'reject'} mode
+ * @returns {string}
+ */
 function transformChunk(chunk, mode) {
   let cur = chunk
   let prev = null
@@ -45,17 +56,17 @@ function transformChunk(chunk, mode) {
     prev = cur
     if (mode === 'accept') {
       cur = cur
-        .replace(PATTERNS.substitution, (_m, _old, nw) => nw)
-        .replace(PATTERNS.addition, (_m, c) => c)
+        .replace(PATTERNS.substitution, /** @param {string} _m @param {string} _old @param {string} nw */ (_m, _old, nw) => nw)
+        .replace(PATTERNS.addition, /** @param {string} _m @param {string} c */ (_m, c) => c)
         .replace(PATTERNS.deletion, () => '')
-        .replace(PATTERNS.highlight, (_m, c) => c)
+        .replace(PATTERNS.highlight, /** @param {string} _m @param {string} c */ (_m, c) => c)
         .replace(PATTERNS.comment, () => '')
     } else {
       cur = cur
-        .replace(PATTERNS.substitution, (_m, o, _nw) => o)
+        .replace(PATTERNS.substitution, /** @param {string} _m @param {string} o @param {string} _nw */ (_m, o, _nw) => o)
         .replace(PATTERNS.addition, () => '')
-        .replace(PATTERNS.deletion, (_m, c) => c)
-        .replace(PATTERNS.highlight, (_m, c) => c)
+        .replace(PATTERNS.deletion, /** @param {string} _m @param {string} c */ (_m, c) => c)
+        .replace(PATTERNS.highlight, /** @param {string} _m @param {string} c */ (_m, c) => c)
         .replace(PATTERNS.comment, () => '')
     }
     iter++
