@@ -1,3 +1,4 @@
+// @ts-check
 // Render-time transclusion helpers for Glimpse.
 //
 // resolveInclude(baseDir, href) -> normalized path.
@@ -16,6 +17,11 @@ function normalizePath(p) {
   return leading + out.join('/')
 }
 
+/**
+ * @param {string} [baseDir]
+ * @param {string} [href]
+ * @returns {string | null}
+ */
 export function resolveInclude(baseDir, href) {
   const clean = String(href || '').split('#')[0].split('?')[0].trim()
   if (!clean) return null
@@ -38,6 +44,14 @@ function escapeHtml(s) {
 
 const INCLUDE_RE = /\[!?([^\]]+)\]/g
 
+/**
+ * @typedef {{ text: string, includedPaths: string[] }} TransclusionResult
+ * @param {any} md
+ * @param {string} sourceText
+ * @param {string} [baseDir]
+ * @param {any} [opts]
+ * @returns {Promise<TransclusionResult>}
+ */
 export async function renderTransclusions(md, sourceText, baseDir, opts = {}) {
   const readFileFn = opts.readFileFn || (async () => { throw new Error('no reader') })
   const depth = opts.depth || 0
