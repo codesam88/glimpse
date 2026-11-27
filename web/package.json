@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "lint": "eslint src",
-    "types": "tsc --noEmit --allowJs --checkJs --strict false --target es2022 --moduleResolution bundler --module esnext --skipLibCheck --noImplicitAny false src/lib/keymap.js src/lib/reviewTransforms.js src/lib/transclude.js src/lib/slug.js src/lib/comments.js",
+    "types": "tsc --noEmit --allowJs --checkJs --strict false --target es2022 --moduleResolution bundler --module esnext --skipLibCheck --noImplicitAny false src/lib/keymap.js src/lib/reviewTransforms.js src/lib/transclude.js src/lib/slug.js src/lib/comments.js src/lib/actions.js src/lib/icons.js",
     "check": "svelte-check"
   },
   "devDependencies": {

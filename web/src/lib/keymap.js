@@ -32,8 +32,11 @@ export const DEFAULT_BINDINGS = {
   'debug.forceToggle': ['Ctrl+Alt+d'],
   'file.save': ['Ctrl+s'],
   'file.open': ['Ctrl+o'],
-  // file.reload intentionally unbound: Ctrl+R/Ctrl+Shift+R collide with
-  // browser reload and would be surprising; use the Reload button instead.
+  'file.reload': ['Ctrl+r', 'F5'],
+  'review.acceptSel': ['Ctrl+Alt+a'],
+  'review.rejectSel': ['Ctrl+Alt+r'],
+  'review.acceptAll': ['Ctrl+Shift+a'],
+  'review.rejectAll': ['Ctrl+Shift+r'],
 }
 
 /**
