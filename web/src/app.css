@@ -44,6 +44,16 @@ a { color: var(--link-color); }
   padding: 0 0.15em;
   border-radius: 3px;
 }
+/* critic markup wrapping replaced elements (images): bg behind an opaque
+   img is invisible — give the img visible marker styling instead */
+.rendered mark:has(> img),
+.rendered ins:has(> img),
+.rendered del:has(> img) {
+  display: inline-block;
+  padding: 4px;
+  border-radius: 6px;
+}
+.rendered del:has(> img) img { opacity: 0.55; }
 .rendered .critic.comment,
 .rendered .critic.comment-over {
   background: #e7f1ff;
