@@ -56,6 +56,7 @@ export function getDefaults() {
   return out
 }
 
+/** @type {Record<string, string>} */
 const MODIFIER_ALIASES = {
   ctrl: 'ctrl', control: 'ctrl',
   alt: 'alt', option: 'alt',
@@ -63,6 +64,10 @@ const MODIFIER_ALIASES = {
   meta: 'meta', cmd: 'meta', super: 'meta', win: 'meta',
 }
 
+/**
+ * @param {string} token
+ * @returns {string}
+ */
 function normalizeKeyToken(token) {
   const t = String(token).trim()
   const lower = t.toLowerCase()
@@ -84,8 +89,13 @@ function normalizeKeyToken(token) {
   return t
 }
 
+/**
+ * @param {string} spec
+ * @returns {{ mods: Record<string, boolean>, key: string | null }}
+ */
 function parseSpec(spec) {
   const parts = String(spec).split('+').map((s) => s.trim()).filter(Boolean)
+  /** @type {Record<string, boolean>} */
   const mods = { ctrl: false, alt: false, shift: false, meta: false }
   let key = null
   for (const p of parts) {
@@ -96,10 +106,18 @@ function parseSpec(spec) {
   return { mods, key }
 }
 
+/**
+ * @param {any} e
+ * @returns {{ ctrl: boolean, alt: boolean, shift: boolean, meta: boolean }}
+ */
 function eventModifiers(e) {
   return { ctrl: !!e.ctrlKey, alt: !!e.altKey, shift: !!e.shiftKey, meta: !!e.metaKey }
 }
 
+/**
+ * @param {any} e
+ * @returns {string | null}
+ */
 function eventKeyToken(e) {
   if (typeof WheelEvent !== 'undefined' && e instanceof WheelEvent) {
     return e.deltaY < 0 ? 'WheelUp' : 'WheelDown'
@@ -115,6 +133,11 @@ function eventKeyToken(e) {
   return key
 }
 
+/**
+ * @param {any} a
+ * @param {any} b
+ * @returns {boolean}
+ */
 function modsEqual(a, b) {
   return a.ctrl === b.ctrl && a.alt === b.alt && a.shift === b.shift && a.meta === b.meta
 }
