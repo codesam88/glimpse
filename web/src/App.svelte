@@ -1614,14 +1614,9 @@
       'sidebar.tabOutline': () => setSidebarTab('outline'),
       'sidebar.tabComments': () => setSidebarTab('comments'),
       'comments.toggleVisibility': toggleComments,
-      'review.highlightMode': () => { reviewMode = 'highlight' },
-      'review.noteMode': () => {
-        reviewMode = 'note'
-        sidebarOpen = true
-        setSidebarTab('comments')
-        persist('sidebarOpen', true)
-      },
-      'review.deleteMode': () => { reviewMode = 'delete' },
+      'review.highlightMode': () => { reviewMode = reviewMode === 'highlight' ? null : 'highlight' },
+      'review.noteMode': () => { if (reviewMode === 'note') { reviewMode = null } else { reviewMode = 'note'; sidebarOpen = true; setSidebarTab('comments'); persist('sidebarOpen', true) } },
+      'review.deleteMode': () => { reviewMode = reviewMode === 'delete' ? null : 'delete' },
       'debug.toggle': () => { if (debugEnabled) { debugEnabled = !debugEnabled; persist('debug', debugEnabled) } },
       'debug.forceToggle': () => { debugEnabled = true; persist('debug', true); try { localStorage.setItem('debug', 'true') } catch {} },
       'file.save': saveFile,
@@ -1880,10 +1875,14 @@
       { id: 'review.undo', label: 'Undo', icon: 'undo', shortcut: getAction('review.undo').shortcut, run: () => registryRunAction('review.undo') },
       { id: 'review.redo', label: 'Redo', icon: 'redo', shortcut: getAction('review.redo').shortcut, run: () => registryRunAction('review.redo') },
       { separator: true },
-      { id: 'review.insert', label: 'Insert', icon: 'plus', shortcut: getAction('review.insert').shortcut, run: () => registryRunAction('review.insert') },
-      { id: 'review.strike', label: 'Strike', icon: 'format-strike', shortcut: getAction('review.strike').shortcut, run: () => registryRunAction('review.strike') },
-      { id: 'review.highlight', label: 'Highlight', icon: 'format-highlight', shortcut: getAction('review.highlight').shortcut, run: () => registryRunAction('review.highlight') },
-      { id: 'review.comment', label: 'Comment', icon: 'comment', shortcut: getAction('review.comment').shortcut, run: () => registryRunAction('review.comment') },
+      { id: 'review.highlightMode', label: 'Highlight mode', icon: 'format-highlight', shortcut: getAction('review.highlightMode').shortcut, checked: reviewMode === 'highlight', run: () => registryRunAction('review.highlightMode') },
+      { id: 'review.noteMode', label: 'Comment mode', icon: 'comment', shortcut: getAction('review.noteMode').shortcut, checked: reviewMode === 'note', run: () => registryRunAction('review.noteMode') },
+      { id: 'review.deleteMode', label: 'Delete mode', icon: 'format-strike', shortcut: getAction('review.deleteMode').shortcut, checked: reviewMode === 'delete', run: () => registryRunAction('review.deleteMode') },
+      { separator: true },
+      { id: 'review.insert', label: 'Editor: Insert', icon: 'plus', shortcut: getAction('review.insert').shortcut, run: () => registryRunAction('review.insert') },
+      { id: 'review.strike', label: 'Editor: Strike', icon: 'format-strike', shortcut: getAction('review.strike').shortcut, run: () => registryRunAction('review.strike') },
+      { id: 'review.highlight', label: 'Editor: Highlight', icon: 'format-highlight', shortcut: getAction('review.highlight').shortcut, run: () => registryRunAction('review.highlight') },
+      { id: 'review.comment', label: 'Editor: Comment', icon: 'comment', shortcut: getAction('review.comment').shortcut, run: () => registryRunAction('review.comment') },
       { separator: true },
       { id: 'review.acceptSel', label: 'Accept sel', icon: 'plus', shortcut: getAction('review.acceptSel').shortcut, run: () => registryRunAction('review.acceptSel') },
       { id: 'review.rejectSel', label: 'Reject sel', icon: 'format-strike', shortcut: getAction('review.rejectSel').shortcut, run: () => registryRunAction('review.rejectSel') },
@@ -1914,30 +1913,26 @@
 
   <button
     class="icon-btn"
-    data-testid="action-review.highlight"
-    title={`Highlight${getAction('review.highlight').shortcut?.length ? ' (' + getAction('review.highlight').shortcut.join(' / ') + ')' : ''}`}
-    on:click={() => registryRunAction('review.highlight')}
+    data-testid="action-review.highlightMode"
+    title="Highlight mode (Ctrl+H)"
+    aria-label="Highlight mode (Ctrl+H)"
+    on:click={() => registryRunAction('review.highlightMode')}
   ><Icon name="format-highlight" size={16} /></button>
 
   <button
     class="icon-btn"
-    data-testid="action-review.strike"
-    title={`Strike${getAction('review.strike').shortcut?.length ? ' (' + getAction('review.strike').shortcut.join(' / ') + ')' : ''}`}
-    on:click={() => registryRunAction('review.strike')}
+    data-testid="action-review.deleteMode"
+    title="Delete mode (Ctrl+D)"
+    aria-label="Delete mode (Ctrl+D)"
+    on:click={() => registryRunAction('review.deleteMode')}
   ><Icon name="format-strike" size={16} /></button>
 
   <button
     class="icon-btn"
-    data-testid="action-review.insert"
-    title={`Insert${getAction('review.insert').shortcut?.length ? ' (' + getAction('review.insert').shortcut.join(' / ') + ')' : ''}`}
-    on:click={() => registryRunAction('review.insert')}
-  ><Icon name="plus" size={16} /></button>
-
-  <button
-    class="icon-btn"
-    data-testid="action-review.comment"
-    title={`Comment${getAction('review.comment').shortcut?.length ? ' (' + getAction('review.comment').shortcut.join(' / ') + ')' : ''}`}
-    on:click={() => registryRunAction('review.comment')}
+    data-testid="action-review.noteMode"
+    title="Comment mode (Ctrl+N)"
+    aria-label="Comment mode (Ctrl+N)"
+    on:click={() => registryRunAction('review.noteMode')}
   ><Icon name="comment" size={16} /></button>
 
   <div class="toolbar-spacer"></div>

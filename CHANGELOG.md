@@ -7,6 +7,12 @@ All notable changes to Glimpse. Format based on
 
 ### Fixed
 
+- **Review modes exposed in UI** — highlight/comment/delete modes were
+  keyboard-only (Ctrl+H/N/D); the toolbar icons and Review menu ran
+  editor-selection wraps instead, so marking text in the preview did nothing
+  in preview view. Quickbar icons and the Review menu now enter the
+  preview-marking modes (icons toggle), with editor wraps remaining in the
+  Review menu as "Editor: …" items.
 - **Transclusion ordering** — a `[!file.md]` / `[file.md]` include written
   mid-paragraph, inside a list item or inside a blockquote now renders its
   content as a block **at the anchor position**; previously the placeholder

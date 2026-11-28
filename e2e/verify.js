@@ -152,6 +152,85 @@ const incRes = await page.evaluate(() => {
 })
 check('include ordering mid-paragraph renders in source order', incRes.ok, incRes.reason || '')
 
+// Review UI workflow: preview-marking modes.
+const { writeFileSync: _ws, mkdtempSync, rmSync } = await import('node:fs')
+const { tmpdir: _tmpdir } = await import('node:os')
+const { join: _join } = await import('node:path')
+const reviewDir = mkdtempSync(_join(_tmpdir(), 'glimpse-review-'))
+const reviewPath = _join(reviewDir, 'review-target.md')
+_ws(reviewPath, '# Review target\n\nalpha beta gamma\n\ndelta epsilon\n')
+await page.locator('input[type=file]').setInputFiles(reviewPath)
+await page.waitForSelector('#rendered', { timeout: 15000 })
+await page.waitForTimeout(1000)
+
+// highlight mode toggle via icon
+await page.locator('[data-testid="action-review.highlightMode"]').click()
+await page.waitForSelector('.mode-badge', { timeout: 5000 })
+const badge1 = await page.locator('.mode-badge').textContent()
+check('highlight mode badge shown', (badge1 || '').includes('Highlight mode'), badge1 || '')
+// synthesize selection over "beta"
+await page.evaluate(() => {
+  const root = document.querySelector('#rendered')
+  const tw = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+  let node
+  while ((node = tw.nextNode())) {
+    const idx = node.textContent.indexOf('beta')
+    if (idx >= 0) {
+      const r = document.createRange()
+      r.setStart(node, idx)
+      r.setEnd(node, idx + 4)
+      const sel = window.getSelection()
+      sel.removeAllRanges()
+      sel.addRange(r)
+      break
+    }
+  }
+})
+await page.locator('.preview-scroll').dispatchEvent('mouseup', { bubbles: true })
+await page.waitForTimeout(2000)
+const markCount = await page.locator('#rendered mark').count()
+const badgeGone = !(await page.locator('.mode-badge').isVisible().catch(() => false))
+check('highlight apply creates mark and clears mode', markCount > 0 && badgeGone, `marks=${markCount} badgeGone=${badgeGone}`)
+
+// note mode
+await page.locator('[data-testid="action-review.noteMode"]').click()
+await page.waitForTimeout(300)
+await page.locator('#rendered p').first().click()
+await page.waitForTimeout(500)
+const editingCard = await page.locator('.comment-card.editing').count()
+check('note mode opens sidebar comments editing', editingCard > 0, `editing=${editingCard}`)
+const ci = page.locator('.comment-text-input').first()
+await ci.fill('hello')
+await page.locator('[data-testid="comment-save"]').click()
+await page.waitForTimeout(500)
+const helloCard = await page.locator('.comment-card').filter({ hasText: 'hello' }).count()
+check('note mode saves comment "hello"', helloCard > 0, `${helloCard}`)
+
+// toggle check
+await page.locator('[data-testid="action-review.highlightMode"]').click()
+await page.waitForTimeout(200)
+const badgeOn = await page.locator('.mode-badge').isVisible().catch(() => false)
+await page.locator('[data-testid="action-review.highlightMode"]').click()
+await page.waitForTimeout(200)
+const badgeOff = !(await page.locator('.mode-badge').isVisible().catch(() => false))
+check('highlight icon toggles badge on/off', badgeOn && badgeOff, `on=${badgeOn} off=${badgeOff}`)
+
+// menu check
+await page.locator('[data-testid="menu-review"]').click()
+await page.waitForSelector('.menu-popover', { state: 'visible', timeout: 5000 })
+const popover = page.locator('.menu-popover').first()
+const hasHl = await popover.locator('[data-testid="action-review.highlightMode"]').count()
+const hasNote = await popover.locator('[data-testid="action-review.noteMode"]').count()
+const hasDel = await popover.locator('[data-testid="action-review.deleteMode"]').count()
+const editorLabels = await popover.evaluate((el) => [...el.querySelectorAll('.menu-item-label')].map((n) => n.textContent.trim()))
+const hasEditorLabels = editorLabels.some((t) => t.startsWith('Editor: '))
+check('review menu has mode items', hasHl === 1 && hasNote === 1 && hasDel === 1, `hl=${hasHl} note=${hasNote} del=${hasDel}`)
+check('review menu has Editor: items', hasEditorLabels, editorLabels.join(', '))
+await page.keyboard.press('Escape')
+await page.waitForTimeout(200)
+
+try { rmSync(reviewDir, { recursive: true, force: true }) } catch {}
+
 // CriticMarkup around an image: the marker must be visible (background behind
 // an opaque image is not), deletions dim the image.
 const { writeFileSync } = await import('node:fs')
