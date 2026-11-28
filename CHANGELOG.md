@@ -20,6 +20,14 @@ All notable changes to Glimpse. Format based on
   use fixed positioning from the trigger rect, clamp/flip within the
   viewport, scroll internally when too tall, and close on scroll/resize.
 
+### Changed
+
+- **Two-row full-bleed header** — the app header now spans the full window
+  width and reaches the top edge (no body padding, no border radius). File /
+  View / Review menus form a separate menubar row above a quick-access
+  toolbar row, with a header background distinct from the window background
+  across all 5 themes.
+
 ## [0.1.0] — 2026-11-26
 
 First release. Standalone offline markdown viewer for Linux — local files,

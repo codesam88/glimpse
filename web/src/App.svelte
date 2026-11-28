@@ -1824,7 +1824,8 @@
 <label class="file-label" style="display:none">
   Open .md <input type="file" accept=".md,.markdown,.txt" on:change={onFile} />
 </label>
-<div class="toolbar" role="toolbar" aria-label="Main toolbar">
+<header class="app-header" data-testid="app-header">
+  <div class="menubar" role="menubar" aria-label="Menu bar" data-testid="menubar">
   <Menu
     label="File"
     testId="menu-file"
@@ -1843,22 +1844,6 @@
       ] : []),
     ]}
   />
-
-  <button
-    class="icon-btn"
-    data-testid="action-file.open"
-    title="Open"
-    on:click={() => registryRunAction('file.open')}
-  ><Icon name="folder-open" size={16} /></button>
-
-  <button
-    class="icon-btn"
-    data-testid="action-file.save"
-    title={`Save${getAction('file.save').shortcut?.length ? ' (' + getAction('file.save').shortcut.join(' / ') + ')' : ''}`}
-    disabled={isTauri() ? (!currentPath || !dirty) : !dirty}
-    on:click={() => registryRunAction('file.save')}
-  ><Icon name="content-save" size={16} />{dirty ? ' *' : ''}</button>
-
   <Menu
     label="View"
     testId="menu-view"
@@ -1906,6 +1891,26 @@
       { id: 'review.rejectAll', label: 'Reject all', icon: 'format-strike', shortcut: getAction('review.rejectAll').shortcut, run: () => registryRunAction('review.rejectAll') },
     ]}
   />
+
+  </div>
+  <div class="toolbar" role="toolbar" aria-label="Quick access toolbar" data-testid="quickbar">
+
+  <button
+    class="icon-btn"
+    data-testid="action-file.open"
+    title="Open"
+    on:click={() => registryRunAction('file.open')}
+  ><Icon name="folder-open" size={16} /></button>
+
+  <button
+    class="icon-btn"
+    data-testid="action-file.save"
+    title={`Save${getAction('file.save').shortcut?.length ? ' (' + getAction('file.save').shortcut.join(' / ') + ')' : ''}`}
+    disabled={isTauri() ? (!currentPath || !dirty) : !dirty}
+    on:click={() => registryRunAction('file.save')}
+  ><Icon name="content-save" size={16} />{dirty ? ' *' : ''}</button>
+
+
 
   <button
     class="icon-btn"
@@ -1982,7 +1987,9 @@
     >{sidebarOpen ? '›' : '‹'}</button>
   </div>
 </div>
+</header>
 
+<div class="app-content">
 {#if loading}
   <p class="status">Loading…</p>
 {/if}
@@ -2115,6 +2122,7 @@
     {/if}
   </div>
 </div>
+</div>
 
 {#if settingsOpen}
   <div class="diagram-modal-backdrop" on:click={() => (settingsOpen = false)}>
@@ -2153,9 +2161,15 @@
 {/if}
 
 <style>
-  .toolbar { display: flex; gap: 0.35rem; margin-bottom: 0.75rem; flex-wrap: nowrap; align-items: center; height: 44px; overflow: hidden; position: sticky; top: 0; z-index: 50; background: var(--app-toolbar-bg); padding: 0.35rem 0.5rem; border-radius: 6px; border: 1px solid var(--app-border); box-shadow: 0 2px 8px rgba(0,0,0,0.12); }
+  .app-header { flex: 0 0 auto; display: flex; flex-direction: column; gap: 0.25rem; padding: 0.25rem 0.5rem 0.4rem; background: var(--app-header-bg); border-bottom: 1px solid var(--app-border); z-index: 50; }
+  .menubar { display: flex; align-items: center; gap: 0.15rem; min-width: 0; }
+  .menubar :global(.menu-trigger) { height: 28px; border-color: transparent; background: transparent; }
+  .menubar :global(.menu-trigger:hover) { background: rgba(128,128,128,0.15); }
+  .toolbar { display: flex; gap: 0.35rem; align-items: center; flex-wrap: nowrap; min-width: 0; }
+  .app-content { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 0.5rem; padding: 0.75rem 1rem 1rem; overflow: auto; }
   .toolbar button, .toolbar .file-label, .toolbar .theme-picker { height: 32px; padding: 0 0.5rem; border: 1px solid var(--app-border); border-radius: 4px; background: var(--app-bg); color: var(--app-fg); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font-size: 0.85rem; line-height: 1; box-sizing: border-box; }
   .toolbar button:hover { filter: brightness(0.97); }
+  .toolbar button :global(svg) { display: block; }
   .toolbar button:disabled { opacity: 0.45; cursor: not-allowed; }
   .toolbar select option { background: var(--app-toolbar-bg); color: var(--app-fg); }
   .toolbar-group { display: inline-flex; gap: 0.25rem; align-items: center; flex-shrink: 0; }
@@ -2188,7 +2202,7 @@
   .status { color: var(--app-fg); opacity: 0.7; }
   .status.error { color: #b00020; opacity: 1; }
   .dirty { color: #b00020; font-size: 0.8rem; }
-  .split { display: grid; height: calc(100vh - 100px); gap: 0; min-height: 0; }
+  .split { display: grid; flex: 1 1 auto; min-height: 0; gap: 0; }
   .split.preview-mode .editor-pane,
   .split.preview-mode .divider { display: none; }
   .conflict-banner { display: flex; gap: 0.5rem; align-items: center; padding: 0.5rem 0.75rem; margin-bottom: 0.5rem; background: #fff3cd; color: #664d03; border: 1px solid #ffecb5; border-radius: 4px; }

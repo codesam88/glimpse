@@ -2,6 +2,7 @@
   --app-bg: #ffffff;
   --app-fg: #1f2328;
   --app-toolbar-bg: #f6f8fa;
+  --app-header-bg: #eaeef2;
   --app-border: #d0d7de;
   --app-accent: #0969da;
   --md-bg: #ffffff;
@@ -19,7 +20,8 @@ html.dark { color-scheme: dark; }
 html.dark .editor-pane .cm-gutters { background: var(--app-toolbar-bg); color: var(--app-fg); border-color: var(--app-border); }
 html.dark .editor-pane .cm-activeLineGutter { background: var(--code-bg); }
 :root { font-family: system-ui, -apple-system, sans-serif; }
-body { margin: 0; padding: 1rem; background: var(--app-bg); color: var(--app-fg); }
+body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background: var(--app-bg); color: var(--app-fg); }
+#app { height: 100vh; display: flex; flex-direction: column; }
 * { box-sizing: border-box; }
 a { color: var(--link-color); }
 

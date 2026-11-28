@@ -74,6 +74,24 @@ if (allTrigs.length >= 2) {
   await page.waitForTimeout(100)
 }
 
+// Header geometry: full-bleed, top of window, distinct background.
+const headerBox = await page.locator('[data-testid="app-header"]').boundingBox()
+const vp = page.viewportSize()
+check('app-header at top-left (x≈0,y≈0)', !!headerBox && headerBox.x <= 0.5 && headerBox.y <= 0.5, JSON.stringify(headerBox))
+check('app-header full width', !!headerBox && vp && Math.abs(headerBox.width - vp.width) <= 1, `${headerBox?.width} vs ${vp?.width}`)
+const headerBg = await page.locator('[data-testid="app-header"]').evaluate((el) => getComputedStyle(el).backgroundColor)
+const bodyBg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor)
+check('header bg differs from body bg', headerBg !== bodyBg, `${headerBg} vs ${bodyBg}`)
+const menubarBox = await page.locator('[data-testid="menubar"]').boundingBox()
+const quickbarBox = await page.locator('[data-testid="quickbar"]').boundingBox()
+check('menubar above quickbar', !!menubarBox && !!quickbarBox && menubarBox.y + menubarBox.height <= quickbarBox.y + 1, `${menubarBox?.y}/${quickbarBox?.y}`)
+check('menubar inside header', !!headerBox && !!menubarBox && menubarBox.x >= headerBox.x - 0.5 && menubarBox.y >= headerBox.y - 0.5 && menubarBox.x + menubarBox.width <= headerBox.x + headerBox.width + 0.5 && menubarBox.y + menubarBox.height <= headerBox.y + headerBox.height + 0.5, '')
+check('quickbar inside header', !!headerBox && !!quickbarBox && quickbarBox.x >= headerBox.x - 0.5 && quickbarBox.y >= headerBox.y - 0.5 && quickbarBox.x + quickbarBox.width <= headerBox.x + headerBox.width + 0.5 && quickbarBox.y + quickbarBox.height <= headerBox.y + headerBox.height + 0.5, '')
+const menusInMenubar = await page.locator('[data-testid="menubar"] [data-testid^="menu-"]').count()
+check('3 menu triggers in menubar', menusInMenubar === 3, `${menusInMenubar}`)
+check('zoom-in button in quickbar', await page.locator('[data-testid="quickbar"] button[title="Zoom in"]').count() === 1, '')
+check('sidebar toggle in quickbar', await page.locator('[data-testid="quickbar"] [data-testid="sidebar-toggle"]').count() === 1, '')
+
 const iconBtns = await page.locator('.icon-btn').count()
 check('icon buttons present', iconBtns >= 4, `${iconBtns}`)
 // Logical scroll anchoring: a geometry change (zoom) must keep the same
